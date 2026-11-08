@@ -1,0 +1,78 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "GPL-3.0-only"
+authors = ["Hans <me@hans00.me>"]
+repository = "https://github.com/hans00/nibwarden"
+homepage = "https://github.com/hans00/nibwarden"
+
+# All bitwarden-* crates come from one pinned sdk-internal commit. Several of them
+# (bitwarden-pm, -unlock, -sync) are not on crates.io, and mixing registry and git
+# versions would yield duplicate, incompatible types. Bump `rev` in one place only.
+[workspace.dependencies]
+bitwarden-api-api = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-core = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef", features = ["internal"] }
+bitwarden-crypto = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-encoding = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-generators = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-exporters = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-importers = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-send = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-pm = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef", features = ["cli"] }
+bitwarden-ssh = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-state = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-auth = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-sync = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+bitwarden-vault = { git = "https://github.com/bitwarden/sdk-internal", rev = "4d983d78ecc4e87ffb2a86c5c2b114b94836eaef" }
+
+nibwarden-config = { path = "crates/nibwarden-config" }
+nibwarden-core = { path = "crates/nibwarden-core" }
+nibwarden-ipc = { path = "crates/nibwarden-ipc" }
+nibwarden-platform = { path = "crates/nibwarden-platform" }
+nibwarden-ssh-agent = { path = "crates/nibwarden-ssh-agent" }
+
+anyhow = "1"
+arboard = { version = "3.7", default-features = false, features = ["wayland-data-control"] }
+async-trait = "0.1.80"
+clap = { version = "4.5.4", features = ["derive", "env"] }
+futures-util = { version = "0.3", default-features = false }
+libc = "0.2.170"
+reqwest = { version = "0.13.3", default-features = false, features = ["json"] }
+rmpv = "1.3"
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+signature = "3.0.0"
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg", "renderer-software", "accessibility"] }
+slint-build = "1.18"
+# Same version the SDK's bitwarden-ssh uses, so keys parse identically and there is one copy.
+ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["std", "ed25519", "p256", "p384", "p521", "rsa", "sha1"] }
+thiserror = "2"
+tokio = { version = "1.36", features = ["macros", "rt-multi-thread"] }
+toml = "1"
+toml_edit = "0.25"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+zeroize = { version = "1.8", features = ["serde"] }
+
+# Packages ship stripped binaries; a panic message still names its source location.
+[profile.release]
+strip = "symbols"
+
+# The packaged GUI (phase2.md §12.2 Q1): about half the size of a plain release build and
+# no slower to start. Not for the daemon: `opt-level = "s"` slows its KDF and encryption,
+# and `panic = "abort"` would end it when one task fails.
+[profile.release-gui]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

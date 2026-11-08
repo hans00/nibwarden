@@ -1,0 +1,962 @@
+// The main window (phase2.md P2-M7), laid out like 1Password's: categories and folders on
+// the left, the matching items in the middle, the chosen item on the right. It shares the
+// vault state and panels with quick access (vault.slint). Frameless like every other
+// window, so it draws its own window buttons and resize edges.
+import { Theme } from "theme.slint";
+import { AppMark, Avatar, Button, Icon, IconButton, Icons, ScrollBar, Spinner, Toast, WindowCard } from "components.slint";
+import { Category, Copied, CopyField, ItemDetail, ItemList, Labels, MessagePanel, QuickNotice, QuickState, SearchField, UnlockPanel, Vault } from "vault.slint";
+import { ItemEditor } from "editor.slint";
+import { GeneratorDialog } from "generator.slint";
+import { SendEditor, SendList, SendPane, Sends } from "send.slint";
+import { ExportDialog, ImportDialog, Transfer, TransferDone, TransferMenu } from "transfer.slint";
+import { AccountPanel } from "account.slint";
+
+// The menu under the account in the sidebar.
+component AccountMenu inherits Rectangle {
+    border-radius: Theme.radius-sm + 1px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 12px;
+    drop-shadow-color: #00000030;
+    VerticalLayout {
+        padding: 4px;
+        for entry in ["lock", "sign-out"]: Rectangle {
+            height: 34px;
+            border-radius: Theme.radius-sm;
+            background: touch.has-hover ? Theme.surface-muted : transparent;
+            accessible-role: button;
+            accessible-label: label.text;
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 10px;
+                Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: 16px;
+                    height: 16px;
+                    commands: entry == "lock" ? Icons.lock : Icons.sign-out;
+                }
+                label := Text {
+                    text: entry == "lock" ? @tr("Lock") : @tr("Sign out");
+                    color: Theme.text;
+                    font-size: Theme.font-body;
+                    vertical-alignment: center;
+                }
+            }
+            touch := TouchArea {
+                clicked => {
+                    if (entry == "lock") {
+                        Vault.lock();
+                    } else {
+                        Vault.sign-out();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The kinds a new item can be, in the order of the sidebar; or of a new Send.
+component NewItemMenu inherits Rectangle {
+    in property <bool> sends;
+    callback chosen(string);
+    border-radius: Theme.radius-sm + 1px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 12px;
+    drop-shadow-color: #00000030;
+    VerticalLayout {
+        padding: 4px;
+        for kind in (root.sends ? ["text", "file"] : ["login", "card", "identity", "note", "ssh_key"]): Rectangle {
+            height: 34px;
+            border-radius: Theme.radius-sm;
+            background: touch.has-hover ? Theme.surface-muted : transparent;
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 10px;
+                Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: 16px;
+                    height: 16px;
+                    commands: kind == "login" ? Icons.globe
+                        : kind == "card" ? Icons.card
+                        : kind == "identity" ? Icons.user
+                        : kind == "note" || kind == "text" ? Icons.note
+                        : kind == "file" ? Icons.file
+                        : Icons.key;
+                }
+                Text {
+                    text: kind == "text" ? @tr("Text") : kind == "file" ? @tr("File") : Labels.kind(kind);
+                    color: Theme.text;
+                    font-size: Theme.font-body;
+                    vertical-alignment: center;
+                }
+            }
+            touch := TouchArea {
+                clicked => {
+                    root.chosen(kind);
+                }
+            }
+        }
+    }
+}
+
+component SidebarRow inherits Rectangle {
+    in property <Category> category;
+    in property <bool> selected;
+    callback clicked();
+    height: 34px;
+    border-radius: Theme.radius-sm;
+    background: selected ? Theme.accent-soft : touch.has-hover ? Theme.surface-muted : transparent;
+    accessible-role: list-item;
+    accessible-item-selected: root.selected;
+    accessible-label: label.text;
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 16px;
+            height: 16px;
+            commands: root.category.kind == "all" ? Icons.grid
+                : root.category.kind == "favorites" ? Icons.star
+                : root.category.kind == "login" ? Icons.globe
+                : root.category.kind == "card" ? Icons.card
+                : root.category.kind == "identity" ? Icons.user
+                : root.category.kind == "note" ? Icons.note
+                : root.category.kind == "ssh_key" ? Icons.key
+                : root.category.kind == "trash" ? Icons.trash
+                : root.category.kind == "send" ? Icons.send
+                : Icons.folder;
+            color: root.selected ? Theme.accent : Theme.text-muted;
+        }
+        label := Text {
+            horizontal-stretch: 1;
+            text: root.category.kind == "all" ? @tr("All items")
+                : root.category.kind == "favorites" ? @tr("Favorites")
+                : root.category.kind == "login" ? @tr("Logins")
+                : root.category.kind == "card" ? @tr("Cards")
+                : root.category.kind == "identity" ? @tr("Identities")
+                : root.category.kind == "note" ? @tr("Secure notes")
+                : root.category.kind == "ssh_key" ? @tr("SSH keys")
+                : root.category.kind == "trash" ? @tr("Trash")
+                : root.category.kind == "send" ? @tr("Send")
+                : root.category.label;
+            color: root.selected ? Theme.text : Theme.text-muted;
+            font-size: Theme.font-body;
+            font-weight: root.selected ? 600 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.category.count >= 0: Text {
+            text: root.category.count;
+            color: Theme.text-faint;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component SectionLabel inherits Text {
+    color: Theme.text-faint;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+// Window buttons: minimize, maximize, close.
+component WindowButtons inherits HorizontalLayout {
+    callback minimize();
+    callback maximize();
+    callback close();
+    spacing: 2px;
+    IconButton {
+        icon: Icons.minimize;
+        label: @tr("Minimize");
+        clicked => {
+            root.minimize();
+        }
+    }
+    IconButton {
+        icon: Icons.maximize;
+        label: @tr("Maximize");
+        clicked => {
+            root.maximize();
+        }
+    }
+    IconButton {
+        icon: Icons.close;
+        label: @tr("Close");
+        clicked => {
+            root.close();
+        }
+    }
+}
+
+export component VaultWindow inherits Window {
+    title: "nibwarden";
+    no-frame: true;
+    // Transparent: the visible window is the rounded card inside (WindowCard).
+    background: transparent;
+    preferred-width: 1000px + 2 * root.margin;
+    preferred-height: 660px + 2 * root.margin;
+    min-width: 760px + 2 * root.margin;
+    min-height: 460px + 2 * root.margin;
+    forward-focus: keys;
+
+    in property <bool> is-maximized;
+    // The shadow around the card; none when maximized.
+    property <length> margin: root.is-maximized ? 0 : Theme.window-margin;
+
+    // The window manager resizes from here (the transparent shadow margin), without the
+    // press reaching the UI.
+    resize-border-width: root.is-maximized ? 0 : root.margin;
+
+    callback minimize();
+    callback maximize();
+
+    // What was read about Sends goes when the vault locks.
+    property <QuickState> vault-state: Vault.state;
+    changed vault-state => {
+        if (self.vault-state != QuickState.list) {
+            Sends.forget();
+            Transfer.close();
+        }
+    }
+
+    property <int> focus-request: Vault.focus-request;
+    changed focus-request => {
+        search.focus();
+    }
+
+    WindowCard {
+        x: root.margin;
+        y: root.margin;
+        width: root.width - 2 * root.margin;
+        height: root.height - 2 * root.margin;
+        border-radius: root.is-maximized ? 0 : Theme.window-radius;
+
+        keys := FocusScope {
+            capture-key-pressed(event) => {
+                if (Vault.state != QuickState.list) {
+                    return reject;
+                }
+                if (Transfer.export-open || Transfer.import-open) {
+                    if (event.text == Key.Escape && !Transfer.busy) {
+                        Transfer.close();
+                        return accept;
+                    }
+                    return reject;
+                }
+                if (Vault.confirm-delete) {
+                    if (event.text == Key.Escape) {
+                        Vault.confirm-delete = false;
+                        return accept;
+                    }
+                    return reject;
+                }
+                if (Vault.gen-open) {
+                    if (event.text == Key.Escape) {
+                        Vault.gen-open = false;
+                        return accept;
+                    }
+                    return reject;
+                }
+                if (Sends.confirm-delete) {
+                    if (event.text == Key.Escape) {
+                        Sends.confirm-delete = false;
+                        return accept;
+                    }
+                    return reject;
+                }
+                if (Sends.shown) {
+                    if (Sends.editing && event.text == Key.Escape) {
+                        Sends.cancel();
+                        return accept;
+                    }
+                    if (!Sends.editing && event.modifiers.control && (event.text == "n" || event.text == "N")) {
+                        Sends.new-send(false);
+                        return accept;
+                    }
+                    if (event.modifiers.control && (event.text == "l" || event.text == "L")) {
+                        Vault.lock();
+                        return accept;
+                    }
+                    return reject;
+                }
+                // The form keeps the keys, except Escape (cancel) and Ctrl+S (save).
+                if (Vault.editing) {
+                    if (event.text == Key.Escape) {
+                        Vault.cancel-edit();
+                        return accept;
+                    }
+                    if (event.modifiers.control && (event.text == "s" || event.text == "S")) {
+                        Vault.save-edit();
+                        return accept;
+                    }
+                    return reject;
+                }
+                if (event.modifiers.control && (event.text == "n" || event.text == "N")) {
+                    Vault.new-item("login");
+                    return accept;
+                }
+                if (event.modifiers.control && (event.text == "e" || event.text == "E") && Vault.item-open && !Vault.item-trashed) {
+                    Vault.edit-item();
+                    return accept;
+                }
+                if (event.modifiers.control && (event.text == "f" || event.text == "F")) {
+                    search.focus();
+                    return accept;
+                }
+                if (event.modifiers.control && (event.text == "l" || event.text == "L")) {
+                    Vault.lock();
+                    return accept;
+                }
+                if (event.modifiers.control && (event.text == "c" || event.text == "C") && Vault.item-open) {
+                    // Only without a text selection to copy instead.
+                    if (!search.has-focus) {
+                        Vault.copy(-1, event.modifiers.alt ? CopyField.code : event.modifiers.shift ? CopyField.password : CopyField.username);
+                        return accept;
+                    }
+                }
+                if (event.text == Key.Escape && Vault.query != "") {
+                    Vault.query = "";
+                    Vault.search("");
+                    return accept;
+                }
+                if (event.text == Key.DownArrow && Vault.items.length > 0) {
+                    // With no item shown, the selected row opens rather than the next.
+                    list.move(Vault.item-open ? 1 : 0);
+                    Vault.open(Vault.selected);
+                    return accept;
+                }
+                if (event.text == Key.UpArrow && Vault.items.length > 0) {
+                    // With no item shown, the selected row opens rather than the next.
+                    list.move(Vault.item-open ? -1 : 0);
+                    Vault.open(Vault.selected);
+                    return accept;
+                }
+                reject
+            }
+
+            // The vault: three columns.
+            HorizontalLayout {
+                visible: Vault.state == QuickState.list;
+
+                // Sidebar.
+                Rectangle {
+                    width: 230px;
+                    background: Theme.dark ? #1b1d22 : #eef0f4;
+                    VerticalLayout {
+                        WindowMoveArea {
+                            height: 64px;
+                            // The account: a click opens its menu (lock, sign out).
+                            account := Rectangle {
+                                x: 8px;
+                                y: 10px;
+                                width: parent.width - 16px;
+                                height: parent.height - 16px;
+                                border-radius: Theme.radius-sm + 2px;
+                                background: account-touch.has-hover ? Theme.border.with-alpha(0.5) : transparent;
+                                accessible-role: button;
+                                accessible-label: Vault.email;
+                                accessible-action-default => {
+                                    account-menu.show();
+                                }
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    spacing: 10px;
+                                    Avatar {
+                                        y: (parent.height - self.height) / 2;
+                                        width: 30px;
+                                        height: 30px;
+                                        initial: Vault.initial;
+                                    }
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        alignment: center;
+                                        spacing: 1px;
+                                        Text {
+                                            text: "nibwarden";
+                                            color: Theme.text;
+                                            font-size: Theme.font-body;
+                                            font-weight: 700;
+                                        }
+                                        Text {
+                                            text: Vault.email;
+                                            color: Theme.text-muted;
+                                            font-size: Theme.font-small;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    Icon {
+                                        y: (parent.height - self.height) / 2;
+                                        width: 14px;
+                                        height: 14px;
+                                        commands: Icons.chevron-down;
+                                    }
+                                }
+                                account-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        account-menu.show();
+                                    }
+                                }
+                            }
+                            account-menu := PopupWindow {
+                                x: account.x;
+                                y: account.y + account.height + 4px;
+                                width: account.width;
+                                AccountMenu { }
+                            }
+                        }
+                        Rectangle {
+                            vertical-stretch: 1;
+                            scroll := Flickable {
+                                width: 100%;
+                                height: 100%;
+                                content-height: categories.preferred-height;
+                                categories := VerticalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 2px;
+                                    alignment: start;
+                                    for category[index] in Vault.categories: VerticalLayout {
+                                        // A heading before the first folder.
+                                        if category.kind == "folder" && (index == 0 || Vault.categories[index - 1].kind != "folder"): SectionLabel {
+                                            text: @tr("FOLDERS");
+                                            height: 30px;
+                                            vertical-alignment: bottom;
+                                        }
+                                        if category.kind == "folder" && (index == 0 || Vault.categories[index - 1].kind != "folder"): Rectangle {
+                                            height: 6px;
+                                        }
+                                        if category.kind == "trash": Rectangle {
+                                            height: 14px;
+                                        }
+                                        SidebarRow {
+                                            category: category;
+                                            selected: index == Vault.category && !Sends.shown;
+                                            clicked => {
+                                                Sends.shown = false;
+                                                Vault.choose-category(index);
+                                            }
+                                        }
+                                    }
+                                    Rectangle {
+                                        height: 14px;
+                                    }
+                                    SidebarRow {
+                                        category: { kind: "send", count: -1 };
+                                        selected: Sends.shown;
+                                        clicked => {
+                                            Sends.show();
+                                        }
+                                    }
+                                }
+                            }
+                            ScrollBar {
+                                x: parent.width - self.width;
+                                height: parent.height;
+                                content: scroll.content-height;
+                                view: scroll.height;
+                                offset <=> scroll.content-y;
+                            }
+                        }
+                        // Lock, sync, settings.
+                        HorizontalLayout {
+                            padding: 10px;
+                            spacing: 4px;
+                            IconButton {
+                                icon: Icons.lock;
+                                label: @tr("Lock");
+                                size: 34px;
+                                clicked => {
+                                    Vault.lock();
+                                }
+                            }
+                            Rectangle {
+                                width: 34px;
+                                height: 34px;
+                                if !Vault.syncing: IconButton {
+                                    icon: Icons.refresh;
+                                    label: @tr("Sync now");
+                                    size: 34px;
+                                    clicked => {
+                                        Vault.sync();
+                                    }
+                                }
+                                if Vault.syncing: Spinner {
+                                    width: 16px;
+                                    height: 16px;
+                                }
+                            }
+                            IconButton {
+                                icon: Icons.generate;
+                                label: @tr("Password generator");
+                                size: 34px;
+                                clicked => {
+                                    Vault.generate-password(-1);
+                                }
+                            }
+                            transfer-button := IconButton {
+                                icon: Icons.transfer;
+                                label: @tr("Import and export");
+                                size: 34px;
+                                clicked => {
+                                    transfer-menu.show();
+                                }
+                            }
+                            transfer-menu := PopupWindow {
+                                x: transfer-button.x;
+                                y: transfer-button.y - 84px;
+                                width: 170px;
+                                TransferMenu { }
+                            }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+                            IconButton {
+                                icon: Icons.settings;
+                                label: @tr("Settings");
+                                size: 34px;
+                                clicked => {
+                                    Vault.open-settings();
+                                }
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    width: 1px;
+                    background: Theme.border;
+                }
+
+                // Item list.
+                Rectangle {
+                    width: 330px;
+                    VerticalLayout {
+                        WindowMoveArea {
+                            height: 64px;
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                alignment: stretch;
+                                spacing: 6px;
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    search := SearchField {
+                                        y: (parent.height - self.height) / 2;
+                                        height: 40px;
+                                        visible: !Sends.shown;
+                                        text <=> Vault.query;
+                                        edited(text) => {
+                                            Vault.search(text);
+                                            list.viewport-y = 0;
+                                        }
+                                    }
+                                    if Sends.shown: Text {
+                                        x: 4px;
+                                        text: @tr("Send");
+                                        color: Theme.text;
+                                        font-size: Theme.font-title - 1px;
+                                        font-weight: 700;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                new-button := IconButton {
+                                    y: (parent.height - self.height) / 2;
+                                    icon: Icons.plus;
+                                    label: Sends.shown ? @tr("New Send") : @tr("New item");
+                                    size: 40px;
+                                    tint: Theme.accent;
+                                    clicked => {
+                                        new-menu.show();
+                                    }
+                                }
+                                new-menu := PopupWindow {
+                                    x: new-button.x + new-button.width - 180px;
+                                    y: new-button.y + new-button.height + 4px;
+                                    width: 180px;
+                                    NewItemMenu {
+                                        sends: Sends.shown;
+                                        chosen(kind) => {
+                                            if (Sends.shown) {
+                                                Sends.new-send(kind == "file");
+                                            } else {
+                                                Vault.new-item(kind);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            vertical-stretch: 1;
+                            // Right-click on the empty part of the list: new items.
+                            if !Sends.shown: ContextMenuArea {
+                                Menu {
+                                    MenuItem {
+                                        title: Labels.new-item("login");
+                                        activated => {
+                                            Vault.new-item("login");
+                                        }
+                                    }
+                                    MenuItem {
+                                        title: Labels.new-item("card");
+                                        activated => {
+                                            Vault.new-item("card");
+                                        }
+                                    }
+                                    MenuItem {
+                                        title: Labels.new-item("identity");
+                                        activated => {
+                                            Vault.new-item("identity");
+                                        }
+                                    }
+                                    MenuItem {
+                                        title: Labels.new-item("note");
+                                        activated => {
+                                            Vault.new-item("note");
+                                        }
+                                    }
+                                    MenuItem {
+                                        title: Labels.new-item("ssh_key");
+                                        activated => {
+                                            Vault.new-item("ssh_key");
+                                        }
+                                    }
+                                }
+                            }
+                            list := ItemList {
+                                width: 100%;
+                                height: 100%;
+                                visible: !Sends.shown;
+                                actions: false;
+                                manage: true;
+                            }
+                            if Sends.shown: SendList {
+                                width: 100%;
+                                height: 100%;
+                            }
+                        }
+                        if (Sends.shown ? Sends.message : Vault.message) != "": Text {
+                            text: Sends.shown ? Sends.message : Vault.message;
+                            color: Theme.danger;
+                            font-size: Theme.font-small;
+                            wrap: word-wrap;
+                        }
+                        Rectangle {
+                            height: 8px;
+                        }
+                    }
+                }
+                Rectangle {
+                    width: 1px;
+                    background: Theme.border;
+                }
+
+                // The chosen item.
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: Theme.dark ? #1a1b20 : #fafbfc;
+                    VerticalLayout {
+                        WindowMoveArea {
+                            height: 48px;
+                            HorizontalLayout {
+                                padding-right: 8px;
+                                alignment: end;
+                                WindowButtons {
+                                    y: (parent.height - 30px) / 2;
+                                    height: 30px;
+                                    minimize => {
+                                        root.minimize();
+                                    }
+                                    maximize => {
+                                        root.maximize();
+                                    }
+                                    close => {
+                                        Vault.close();
+                                    }
+                                }
+                            }
+                        }
+                        if Sends.shown && Sends.editing: SendEditor {
+                            padding: 24px;
+                            padding-top: 0px;
+                            padding-bottom: 0px;
+                            vertical-stretch: 1;
+                        }
+                        if Sends.shown && !Sends.editing && Sends.open: SendPane {
+                            padding: 24px;
+                            padding-top: 0px;
+                            vertical-stretch: 1;
+                        }
+                        if Sends.shown && !Sends.editing && !Sends.open: VerticalLayout {
+                            vertical-stretch: 1;
+                            alignment: center;
+                            spacing: 10px;
+                            HorizontalLayout {
+                                alignment: center;
+                                Icon {
+                                    width: 40px;
+                                    height: 40px;
+                                    commands: Icons.send;
+                                    color: Theme.text-faint;
+                                }
+                            }
+                            Text {
+                                text: Sends.rows.length == 0 ? @tr("No Sends yet") : @tr("Select a Send to see its link");
+                                horizontal-alignment: center;
+                                color: Theme.text-muted;
+                                font-size: Theme.font-body;
+                            }
+                        }
+                        if !Sends.shown && Vault.editing: ItemEditor {
+                            padding: 24px;
+                            padding-top: 0px;
+                            padding-bottom: 0px;
+                            vertical-stretch: 1;
+                        }
+                        if !Sends.shown && Vault.item-open && !Vault.editing: ItemDetail {
+                            back-button: false;
+                            actions: true;
+                            padding: 24px;
+                            padding-top: 0px;
+                            vertical-stretch: 1;
+                        }
+                        if !Sends.shown && !Vault.item-open && !Vault.editing: VerticalLayout {
+                            vertical-stretch: 1;
+                            alignment: center;
+                            spacing: 10px;
+                            HorizontalLayout {
+                                alignment: center;
+                                Icon {
+                                    width: 40px;
+                                    height: 40px;
+                                    commands: Icons.lock;
+                                    color: Theme.text-faint;
+                                }
+                            }
+                            Text {
+                                text: Vault.items.length == 0 ? @tr("No items") : @tr("Select an item to see its details");
+                                horizontal-alignment: center;
+                                color: Theme.text-muted;
+                                font-size: Theme.font-body;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Locked, loading, or a message: one column, with its own title bar.
+            if Vault.state != QuickState.list: VerticalLayout {
+                WindowMoveArea {
+                    height: 48px;
+                    HorizontalLayout {
+                        padding-right: 8px;
+                        alignment: end;
+                        WindowButtons {
+                            y: (parent.height - 30px) / 2;
+                            height: 30px;
+                            minimize => {
+                                root.minimize();
+                            }
+                            maximize => {
+                                root.maximize();
+                            }
+                            close => {
+                                Vault.close();
+                            }
+                        }
+                    }
+                }
+                if Vault.state == QuickState.locked: UnlockPanel {
+                    vertical-stretch: 1;
+                    alignment: center;
+                    // Balances the bar above and the panel's top padding: centred in the window.
+                    padding-bottom: 72px;
+                }
+                if Vault.state == QuickState.message && Vault.notice == QuickNotice.logged-out: AccountPanel {
+                    vertical-stretch: 1;
+                }
+                if Vault.state == QuickState.loading || (Vault.state == QuickState.message && Vault.notice != QuickNotice.logged-out): MessagePanel {
+                    vertical-stretch: 1;
+                }
+            }
+        }
+    }
+
+    // Deleting for good asks first.
+    if Vault.confirm-delete && Vault.state == QuickState.list: Rectangle {
+        x: root.margin;
+        y: root.margin;
+        width: root.width - 2 * root.margin;
+        height: root.height - 2 * root.margin;
+        border-radius: root.is-maximized ? 0 : Theme.window-radius;
+        background: #00000066;
+        z: 10;
+        TouchArea { }
+        Rectangle {
+            width: min(420px, parent.width - 48px);
+            height: dialog.preferred-height;
+            border-radius: Theme.radius-lg;
+            background: Theme.window;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000055;
+            dialog := VerticalLayout {
+                padding: 24px;
+                spacing: 10px;
+                Text {
+                    text: @tr("Delete \"{0}\" permanently?", Vault.delete-name);
+                    color: Theme.text;
+                    font-size: Theme.font-title - 2px;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: @tr("It is removed from your vault on every device. This cannot be undone.");
+                    color: Theme.text-muted;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    padding-top: 12px;
+                    spacing: 10px;
+                    alignment: end;
+                    Button {
+                        text: @tr("Cancel");
+                        clicked => {
+                            Vault.confirm-delete = false;
+                        }
+                    }
+                    Button {
+                        text: @tr("Delete permanently");
+                        primary: true;
+                        danger: true;
+                        clicked => {
+                            Vault.confirm-delete = false;
+                            Vault.delete-item();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if Sends.confirm-delete && Vault.state == QuickState.list: Rectangle {
+        x: root.margin;
+        y: root.margin;
+        width: root.width - 2 * root.margin;
+        height: root.height - 2 * root.margin;
+        border-radius: root.is-maximized ? 0 : Theme.window-radius;
+        background: #00000066;
+        z: 10;
+        TouchArea { }
+        Rectangle {
+            width: min(420px, parent.width - 48px);
+            height: send-dialog.preferred-height;
+            border-radius: Theme.radius-lg;
+            background: Theme.window;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #00000055;
+            send-dialog := VerticalLayout {
+                padding: 24px;
+                spacing: 10px;
+                Text {
+                    text: @tr("Delete the Send \"{0}\"?", Sends.detail.name);
+                    color: Theme.text;
+                    font-size: Theme.font-title - 2px;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                }
+                Text {
+                    text: @tr("Its link stops working for everyone. This cannot be undone.");
+                    color: Theme.text-muted;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    padding-top: 12px;
+                    spacing: 10px;
+                    alignment: end;
+                    Button {
+                        text: @tr("Cancel");
+                        clicked => {
+                            Sends.confirm-delete = false;
+                        }
+                    }
+                    Button {
+                        text: @tr("Delete");
+                        primary: true;
+                        danger: true;
+                        clicked => {
+                            Sends.confirm-delete = false;
+                            Sends.delete();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if Vault.gen-open && Vault.state == QuickState.list: Rectangle {
+        x: root.margin;
+        y: root.margin;
+        width: root.width - 2 * root.margin;
+        height: root.height - 2 * root.margin;
+        border-radius: root.is-maximized ? 0 : Theme.window-radius;
+        background: #00000066;
+        z: 10;
+        TouchArea { }
+        GeneratorDialog {
+            width: min(460px, parent.width - 48px);
+        }
+    }
+
+    if (Transfer.export-open || Transfer.import-open) && Vault.state == QuickState.list: Rectangle {
+        x: root.margin;
+        y: root.margin;
+        width: root.width - 2 * root.margin;
+        height: root.height - 2 * root.margin;
+        border-radius: root.is-maximized ? 0 : Theme.window-radius;
+        background: #00000066;
+        z: 10;
+        TouchArea { }
+        if Transfer.result != "": TransferDone {
+            width: min(480px, parent.width - 48px);
+        }
+        if Transfer.result == "" && Transfer.export-open: ExportDialog {
+            width: min(480px, parent.width - 48px);
+        }
+        if Transfer.result == "" && Transfer.import-open: ImportDialog {
+            width: min(480px, parent.width - 48px);
+        }
+    }
+
+    Toast {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 40px;
+        text: Vault.copied == Copied.username ? @tr("Username copied")
+            : Vault.copied == Copied.password ? @tr("Password copied")
+            : Vault.copied == Copied.code ? @tr("One-time code copied")
+            : Vault.copied == Copied.link ? @tr("Link copied")
+            : @tr("Copied");
+        shown: Vault.toast-shown;
+        z: 20;
+    }
+}

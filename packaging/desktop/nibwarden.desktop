@@ -1,0 +1,32 @@
+[Desktop Entry]
+Type=Application
+Name=nibwarden
+GenericName=Password Manager
+GenericName[zh_TW]=密碼管理器
+GenericName[zh_CN]=密码管理器
+Comment=Your Bitwarden vault on the desktop
+Comment[zh_TW]=在桌面使用你的 Bitwarden 密碼庫
+Comment[zh_CN]=在桌面使用你的 Bitwarden 密码库
+Icon=nibwarden
+Exec=nibwarden-gui vault
+Terminal=false
+Categories=Utility;Security;
+Keywords=password;vault;bitwarden;vaultwarden;ssh;totp;
+Keywords[zh_TW]=密碼;密碼庫;password;bitwarden;ssh;
+Keywords[zh_CN]=密码;密码库;password;bitwarden;ssh;
+StartupNotify=true
+StartupWMClass=nibwarden
+SingleMainWindow=true
+Actions=quick;settings;
+
+[Desktop Action quick]
+Name=Quick access
+Name[zh_TW]=快速存取
+Name[zh_CN]=快速访问
+Exec=nibwarden-gui quick
+
+[Desktop Action settings]
+Name=Settings
+Name[zh_TW]=設定
+Name[zh_CN]=设置
+Exec=nibwarden-gui settings

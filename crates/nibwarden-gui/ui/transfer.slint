@@ -1,0 +1,325 @@
+// Export and import in the main window (phase2.md P2-M13): a dialog over the window, opened
+// from the sidebar's menu. Exporting asks for the master password again; the file is
+// chosen in the system's save dialog afterwards.
+import { Theme } from "theme.slint";
+import { Button, Icon, Icons, Segmented } from "components.slint";
+import { FormField } from "editor.slint";
+
+export global Transfer {
+    in-out property <bool> export-open;
+    in-out property <bool> import-open;
+    // 0: password-protected JSON, 1: JSON, 2: CSV.
+    in-out property <int> format;
+    in-out property <string> file-password;
+    in-out property <string> file-password-again;
+    in-out property <string> master-password;
+    // The file chosen for import, and whether it needs its password.
+    in-out property <string> import-name;
+    in-out property <bool> needs-password;
+    in-out property <string> import-password;
+    in-out property <string> error;
+    in-out property <bool> busy;
+    // Set when done: what happened, shown in place of the form.
+    in-out property <string> result;
+
+    // Messages the Rust side shows, translated here.
+    public pure function message(key: string) -> string {
+        return key == "master" ? @tr("Enter your master password.")
+            : key == "file-password" ? @tr("Choose a password for the file.")
+            : key == "mismatch" ? @tr("The two file passwords differ.")
+            : key == "wrong-master" ? @tr("Wrong master password.")
+            : key == "wrong-file" ? @tr("Wrong password for this file.")
+            : key == "too-big" ? @tr("The file is larger than 10 MB.")
+            : key == "password-needed" ? @tr("Enter the password of the file.")
+            : key;
+    }
+    public pure function exported(items: int, path: string) -> string {
+        return @tr("Items exported: {0}. The file is {1}; keep it safe, and delete it once you no longer need it.", items, path);
+    }
+    public pure function imported(items: int, folders: int) -> string {
+        return @tr("Items added to your vault: {0}. New folders: {1}.", items, folders);
+    }
+
+    callback open-export();
+    callback open-import();
+    callback export();
+    callback choose-import-file();
+    callback import();
+    callback close();
+}
+
+// The two entries of the sidebar's import and export menu.
+export component TransferMenu inherits Rectangle {
+    border-radius: Theme.radius-sm + 1px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 12px;
+    drop-shadow-color: #00000030;
+    VerticalLayout {
+        padding: 4px;
+        for entry in ["import", "export"]: Rectangle {
+            height: 34px;
+            border-radius: Theme.radius-sm;
+            background: touch.has-hover ? Theme.surface-muted : transparent;
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 10px;
+                Icon {
+                    y: (parent.height - self.height) / 2;
+                    width: 16px;
+                    height: 16px;
+                    commands: entry == "import" ? Icons.upload : Icons.download;
+                }
+                Text {
+                    text: entry == "import" ? @tr("Import…") : @tr("Export…");
+                    color: Theme.text;
+                    font-size: Theme.font-body;
+                    vertical-alignment: center;
+                }
+            }
+            touch := TouchArea {
+                clicked => {
+                    if (entry == "import") {
+                        Transfer.open-import();
+                    } else {
+                        Transfer.open-export();
+                    }
+                }
+            }
+        }
+    }
+}
+
+component Problem inherits HorizontalLayout {
+    in property <string> text;
+    spacing: 8px;
+    Icon {
+        y: 2px;
+        width: 15px;
+        height: 15px;
+        commands: Icons.alert;
+        color: Theme.danger;
+    }
+    Text {
+        horizontal-stretch: 1;
+        text: root.text;
+        color: Theme.danger;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+    }
+}
+
+component Note inherits Text {
+    color: Theme.text-muted;
+    font-size: Theme.font-body;
+    wrap: word-wrap;
+}
+
+component Title inherits Text {
+    color: Theme.text;
+    font-size: Theme.font-title - 2px;
+    font-weight: 700;
+    wrap: word-wrap;
+}
+
+// What an export or import did.
+export component TransferDone inherits Rectangle {
+    border-radius: Theme.radius-lg;
+    background: Theme.window;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: #00000055;
+    height: body.preferred-height;
+    body := VerticalLayout {
+        padding: 24px;
+        spacing: 12px;
+        Title {
+            text: Transfer.export-open ? @tr("Export finished") : @tr("Import finished");
+        }
+        Note {
+            text: Transfer.result;
+        }
+        HorizontalLayout {
+            padding-top: 8px;
+            alignment: end;
+            Button {
+                text: @tr("Done");
+                primary: true;
+                clicked => {
+                    Transfer.close();
+                }
+            }
+        }
+    }
+}
+
+// Format, file password and master password; the file is chosen afterwards.
+export component ExportDialog inherits Rectangle {
+    border-radius: Theme.radius-lg;
+    background: Theme.window;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: #00000055;
+    height: body.preferred-height;
+    body := VerticalLayout {
+        padding: 24px;
+        spacing: 12px;
+        Title {
+            text: @tr("Export your vault");
+        }
+        Note {
+            text: @tr("Your personal items and folders go into one file, in a format Bitwarden can import. Items in the trash are left out.");
+        }
+        HorizontalLayout {
+            alignment: start;
+            Segmented {
+                options: [@tr("Password-protected JSON"), @tr("JSON"), @tr("CSV")];
+                selected <=> Transfer.format;
+            }
+        }
+        if Transfer.format == 0: Note {
+            text: @tr("Only someone with the file password can read it. You need the password to import it again.");
+        }
+        if Transfer.format != 0: HorizontalLayout {
+            spacing: 8px;
+            Icon {
+                y: 2px;
+                width: 15px;
+                height: 15px;
+                commands: Icons.alert;
+                color: Theme.danger;
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: Transfer.format == 2
+                    ? @tr("The file is not encrypted: anyone who can open it sees your passwords. CSV holds only logins and secure notes.")
+                    : @tr("The file is not encrypted: anyone who can open it sees your passwords.");
+                color: Theme.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+            }
+        }
+        if Transfer.format == 0: FormField {
+            label: @tr("File password");
+            value: Transfer.file-password;
+            secret: true;
+            edited(text) => {
+                Transfer.file-password = text;
+            }
+        }
+        if Transfer.format == 0: FormField {
+            label: @tr("File password again");
+            value: Transfer.file-password-again;
+            secret: true;
+            edited(text) => {
+                Transfer.file-password-again = text;
+            }
+        }
+        FormField {
+            label: @tr("Master password");
+            value: Transfer.master-password;
+            secret: true;
+            edited(text) => {
+                Transfer.master-password = text;
+            }
+        }
+        if Transfer.error != "": Problem {
+            text: Transfer.error;
+        }
+        HorizontalLayout {
+            padding-top: 8px;
+            spacing: 10px;
+            alignment: end;
+            Button {
+                text: @tr("Cancel");
+                clicked => {
+                    Transfer.close();
+                }
+            }
+            Button {
+                text: Transfer.busy ? @tr("Exporting…") : @tr("Export…");
+                primary: true;
+                enabled: !Transfer.busy;
+                clicked => {
+                    Transfer.export();
+                }
+            }
+        }
+    }
+}
+
+// The file to import and, when it has one, its password. (One level of `if` only:
+// an element added by a nested `if` after the dialog opens is left out of its height.)
+export component ImportDialog inherits Rectangle {
+    border-radius: Theme.radius-lg;
+    background: Theme.window;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: #00000055;
+    height: body.preferred-height;
+    body := VerticalLayout {
+        padding: 24px;
+        spacing: 12px;
+        Title {
+            text: @tr("Import into your vault");
+        }
+        Note {
+            text: @tr("From a Bitwarden JSON or CSV export (also password-protected) or a KeePass database (.kdbx). The items are added; nothing already in your vault changes.");
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            Button {
+                text: Transfer.import-name == "" ? @tr("Choose a file…") : @tr("Choose another…");
+                enabled: !Transfer.busy;
+                clicked => {
+                    Transfer.choose-import-file();
+                }
+            }
+            Text {
+                horizontal-stretch: 1;
+                // A long file name is elided rather than widening the dialog.
+                preferred-width: 0px;
+                text: Transfer.import-name == "" ? @tr("At most 10 MB") : Transfer.import-name;
+                color: Transfer.import-name == "" ? Theme.text-faint : Theme.text;
+                font-size: Theme.font-body;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        if Transfer.needs-password: FormField {
+            label: @tr("Password of the file");
+            value: Transfer.import-password;
+            secret: true;
+            edited(text) => {
+                Transfer.import-password = text;
+            }
+        }
+        if Transfer.error != "": Problem {
+            text: Transfer.error;
+        }
+        HorizontalLayout {
+            padding-top: 8px;
+            spacing: 10px;
+            alignment: end;
+            Button {
+                text: @tr("Cancel");
+                clicked => {
+                    Transfer.close();
+                }
+            }
+            Button {
+                text: Transfer.busy ? @tr("Importing…") : @tr("Import");
+                primary: true;
+                enabled: !Transfer.busy && Transfer.import-name != "";
+                clicked => {
+                    Transfer.import();
+                }
+            }
+        }
+    }
+}

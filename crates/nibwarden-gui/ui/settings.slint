@@ -1,0 +1,351 @@
+// Settings (phase2.md §5.6). Every change is saved right away to config.toml and the
+// daemon is asked to reload it; there is no Save button.
+import { Theme } from "theme.slint";
+import { Button, ScrollBar, Segmented, Switch, TitleBar, WindowCard } from "components.slint";
+
+component Section inherits VerticalLayout {
+    in property <string> title;
+    spacing: 8px;
+    Text {
+        text: root.title;
+        color: Theme.text-muted;
+        font-size: Theme.font-small;
+        font-weight: 700;
+    }
+    Rectangle {
+        border-radius: Theme.radius;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: Theme.border;
+        VerticalLayout {
+            @children
+        }
+    }
+}
+
+// One setting: a label (with an optional explanation) and its control on the right.
+component SettingRow inherits Rectangle {
+    in property <string> label;
+    in property <string> detail;
+    in property <bool> first;
+    min-height: 56px;
+    if !root.first: Rectangle {
+        y: 0;
+        height: 1px;
+        background: Theme.border;
+    }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 14px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 16px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.label;
+                color: Theme.text;
+                font-size: Theme.font-body + 0.5px;
+                wrap: word-wrap;
+            }
+            if root.detail != "": Text {
+                text: root.detail;
+                color: Theme.text-muted;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            VerticalLayout {
+                alignment: center;
+                @children
+            }
+        }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: @tr("nibwarden settings");
+    no-frame: true;
+    width: 640px + 2 * Theme.window-margin;
+    height: 700px + 2 * Theme.window-margin;
+    // Transparent: the visible window is the rounded card inside (WindowCard).
+    background: transparent;
+
+    // Index of the chosen option in each Segmented below.
+    in-out property <int> theme;
+    in-out property <int> language;
+    in-out property <int> idle;
+    in-out property <bool> lock-on-screen-lock;
+    in-out property <bool> lock-on-sleep;
+    in-out property <bool> clear-clipboard;
+    in-out property <int> clear-after;
+    in-out property <bool> ask-read;
+    in-out property <int> remember;
+    in-out property <int> remember-for;
+    in-out property <bool> allow-without-window;
+    in-out property <bool> tray;
+    // The browser extension unlocks with nibwarden; `browser-others`: the browsers where
+    // another program (Bitwarden's desktop app) is registered instead.
+    in-out property <bool> browser;
+    in property <string> browser-others;
+    in property <string> shortcut-status;
+    // Problems saving, shown at the bottom.
+    in property <string> error;
+
+    callback theme-chosen(int);
+    callback language-chosen(int);
+    callback idle-chosen(int);
+    callback lock-on-screen-lock-changed(bool);
+    callback lock-on-sleep-changed(bool);
+    callback clear-clipboard-changed(bool);
+    callback clear-after-chosen(int);
+    callback ask-read-changed(bool);
+    callback remember-chosen(int);
+    callback remember-for-chosen(int);
+    callback allow-without-window-changed(bool);
+    callback install-shortcut();
+    callback tray-changed(bool);
+    callback browser-changed(bool);
+    callback close-requested();
+
+
+    WindowCard {
+        x: Theme.window-margin;
+        y: Theme.window-margin;
+        width: root.width - 2 * Theme.window-margin;
+        height: root.height - 2 * Theme.window-margin;
+        FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.close-requested();
+                    return accept;
+                }
+                reject
+            }
+            VerticalLayout {
+                TitleBar {
+                    title: @tr("nibwarden settings");
+                    close => {
+                        root.close-requested();
+                    }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    scroll := Flickable {
+                        width: 100%;
+                        height: 100%;
+                        content-height: page.preferred-height;
+                        page := VerticalLayout {
+                            padding: 22px;
+                            padding-top: 6px;
+                            spacing: 22px;
+
+                            Text {
+                                text: @tr("Settings");
+                                color: Theme.text;
+                                font-size: Theme.font-title + 3px;
+                                font-weight: 700;
+                            }
+
+                            Section {
+                                title: @tr("Appearance");
+                                SettingRow {
+                                    first: true;
+                                    label: @tr("Theme");
+                                    Segmented {
+                                        options: [@tr("System"), @tr("Light"), @tr("Dark")];
+                                        selected <=> root.theme;
+                                        chosen(index) => {
+                                            root.theme-chosen(index);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    label: @tr("Language");
+                                    // Language names in their own language, as is customary.
+                                    Segmented {
+                                        options: [@tr("System"), "English", "正體中文", "简体中文"];
+                                        selected <=> root.language;
+                                        chosen(index) => {
+                                            root.language-chosen(index);
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
+                                title: @tr("System tray");
+                                SettingRow {
+                                    first: true;
+                                    label: @tr("Show in the system tray");
+                                    Switch {
+                                        label: @tr("Show in the system tray");
+                                        checked <=> root.tray;
+                                        toggled(on) => {
+                                            root.tray-changed(on);
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
+                                title: @tr("Locking");
+                                SettingRow {
+                                    first: true;
+                                    label: @tr("Lock after inactivity");
+                                    Segmented {
+                                        options: [@tr("1 min"), @tr("5 min"), @tr("15 min"), @tr("30 min"), @tr("1 hour"), @tr("Never")];
+                                        selected <=> root.idle;
+                                        chosen(index) => {
+                                            root.idle-chosen(index);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    label: @tr("Lock when the screen locks");
+                                    Switch {
+                                        label: @tr("Lock when the screen locks");
+                                        checked <=> root.lock-on-screen-lock;
+                                        toggled(on) => {
+                                            root.lock-on-screen-lock-changed(on);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    label: @tr("Lock before the computer sleeps");
+                                    Switch {
+                                        label: @tr("Lock before the computer sleeps");
+                                        checked <=> root.lock-on-sleep;
+                                        toggled(on) => {
+                                            root.lock-on-sleep-changed(on);
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
+                                title: @tr("Clipboard");
+                                SettingRow {
+                                    first: true;
+                                    label: @tr("Clear copied passwords and codes");
+                                    Switch {
+                                        label: @tr("Clear copied passwords and codes");
+                                        checked <=> root.clear-clipboard;
+                                        toggled(on) => {
+                                            root.clear-clipboard-changed(on);
+                                        }
+                                    }
+                                }
+                                if root.clear-clipboard: SettingRow {
+                                    label: @tr("Clear after");
+                                    Segmented {
+                                        options: [@tr("30 s"), @tr("1 min"), @tr("90 s"), @tr("2 min"), @tr("5 min")];
+                                        selected <=> root.clear-after;
+                                        chosen(index) => {
+                                            root.clear-after-chosen(index);
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
+                                title: @tr("Confirmation");
+                                SettingRow {
+                                    first: true;
+                                    label: @tr("An approval applies to");
+                                    Segmented {
+                                        options: [@tr("One request"), @tr("Per application"), @tr("Per terminal tab")];
+                                        selected <=> root.remember;
+                                        chosen(index) => {
+                                            root.remember-chosen(index);
+                                        }
+                                    }
+                                }
+                                if root.remember != 0: SettingRow {
+                                    label: @tr("Remember an approval");
+                                    Segmented {
+                                        options: [@tr("Until locked"), @tr("1 hour"), @tr("4 hours"), @tr("12 hours")];
+                                        selected <=> root.remember-for;
+                                        chosen(index) => {
+                                            root.remember-for-chosen(index);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    label: @tr("Ask before programs read secrets");
+                                    Switch {
+                                        label: @tr("Ask before programs read secrets");
+                                        checked <=> root.ask-read;
+                                        toggled(on) => {
+                                            root.ask-read-changed(on);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    label: @tr("Allow secret reads when no window can be shown");
+                                    detail: @tr("For example over SSH.");
+                                    Switch {
+                                        label: @tr("Allow secret reads when no window can be shown");
+                                        checked <=> root.allow-without-window;
+                                        toggled(on) => {
+                                            root.allow-without-window-changed(on);
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
+                                title: @tr("Quick access");
+                                SettingRow {
+                                    first: true;
+                                    label: @tr("Keyboard shortcut");
+                                    detail: root.shortcut-status == "" ? @tr("Ctrl+Shift+Space opens quick access.") : root.shortcut-status;
+                                    Button {
+                                        text: @tr("Set up");
+                                        clicked => {
+                                            root.install-shortcut();
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
+                                title: @tr("Browser");
+                                SettingRow {
+                                    first: true;
+                                    label: @tr("Unlock the Bitwarden browser extension with nibwarden");
+                                    detail: root.browser-others == "" ? "" : @tr("{0} starts Bitwarden's desktop app instead.", root.browser-others);
+                                    Switch {
+                                        label: @tr("Unlock the Bitwarden browser extension with nibwarden");
+                                        checked <=> root.browser;
+                                        toggled(on) => {
+                                            root.browser-changed(on);
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.error != "": Text {
+                                text: root.error;
+                                color: Theme.danger;
+                                font-size: Theme.font-small;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                    ScrollBar {
+                        x: parent.width - self.width;
+                        height: parent.height;
+                        content: scroll.content-height;
+                        view: scroll.height;
+                        offset <=> scroll.content-y;
+                    }
+                }
+            }
+        }
+    }
+}

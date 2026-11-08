@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- The nibwarden mark (AppMark in crates/nibwarden-gui/ui/components.slint). -->
+  <rect x="8" y="8" width="112" height="112" rx="32" fill="#3373f2"/>
+  <path transform="translate(36 36) scale(2.3333)" fill="#fff" d="M12 3a5 5 0 0 1 2.6 9.27l1.15 7.48A1.1 1.1 0 0 1 14.66 21h-5.32a1.1 1.1 0 0 1-1.09-1.25l1.15-7.48A5 5 0 0 1 12 3z"/>
+</svg>

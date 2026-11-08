@@ -1,0 +1,190 @@
+// Quick access (phase2.md §7), after 1Password's Quick Access and Bitwarden's item view:
+// type to search, Up/Down to choose; Enter, Right or a click opens the item, where every
+// field can be copied. Ctrl+C copies the username, Ctrl+Shift+C the password and
+// Ctrl+Alt+C the one-time code, from the list or the item. Escape clears the search,
+// goes back, or closes. The vault state itself lives in `Vault` (vault.slint).
+import { Theme } from "theme.slint";
+import { TitleBar, Toast, WindowCard } from "components.slint";
+import { CopyField, Copied, Hint, ItemDetail, ItemList, MessagePanel, QuickState, SearchField, UnlockPanel, Vault } from "vault.slint";
+
+export component QuickWindow inherits Window {
+    title: @tr("Quick access");
+    no-frame: true;
+    width: 600px + 2 * Theme.window-margin;
+    height: 480px + 2 * Theme.window-margin;
+    // Transparent: the visible window is the rounded card inside (WindowCard).
+    background: transparent;
+    forward-focus: keys;
+
+    // Bumped by the Rust side when the list (re)appears.
+    property <int> focus-request: Vault.focus-request;
+    changed focus-request => {
+        search.focus();
+    }
+
+    WindowCard {
+        x: Theme.window-margin;
+        y: Theme.window-margin;
+        width: root.width - 2 * Theme.window-margin;
+        height: root.height - 2 * Theme.window-margin;
+        keys := FocusScope {
+            // Before the search field sees them: navigation and copy shortcuts.
+            capture-key-pressed(event) => {
+                let listing = Vault.state == QuickState.list && !Vault.item-open;
+                if (event.text == Key.Escape) {
+                    if (Vault.item-open) {
+                        Vault.back();
+                    } else if (listing && Vault.query != "") {
+                        Vault.query = "";
+                        Vault.search("");
+                    } else {
+                        Vault.close();
+                    }
+                    return accept;
+                }
+                if (Vault.item-open && event.text == Key.LeftArrow) {
+                    Vault.back();
+                    return accept;
+                }
+                if ((listing && Vault.items.length > 0) || Vault.item-open) {
+                    if (event.modifiers.control && (event.text == "c" || event.text == "C")) {
+                        Vault.copy(Vault.item-open ? -1 : Vault.selected,
+                            event.modifiers.alt ? CopyField.code : event.modifiers.shift ? CopyField.password : CopyField.username);
+                        return accept;
+                    }
+                }
+                if (!listing) {
+                    return reject;
+                }
+                if (event.text == Key.DownArrow) {
+                    list.move(1);
+                    return accept;
+                }
+                if (event.text == Key.UpArrow) {
+                    list.move(-1);
+                    return accept;
+                }
+                if ((event.text == Key.Return || event.text == Key.RightArrow) && Vault.items.length > 0) {
+                    Vault.open(Vault.selected);
+                    return accept;
+                }
+                reject
+            }
+
+            VerticalLayout {
+                TitleBar {
+                    title: @tr("Quick access");
+                    close => {
+                        Vault.close();
+                    }
+                }
+
+                // The states, stacked: each fills this area and only one is shown, so none
+                // takes space from another.
+                Rectangle {
+                vertical-stretch: 1;
+
+                // Always present (only hidden), so the key handler can reach `list` and
+                // `search`.
+                Rectangle {
+                    visible: Vault.state == QuickState.list && !Vault.item-open;
+                    VerticalLayout {
+                        padding: 14px;
+                        padding-top: 2px;
+                        spacing: 10px;
+                        search := SearchField {
+                            text <=> Vault.query;
+                            edited(text) => {
+                                Vault.search(text);
+                                list.viewport-y = 0;
+                            }
+                            init => {
+                                self.focus();
+                            }
+                        }
+                        list := ItemList {
+                            vertical-stretch: 1;
+                        }
+                        if Vault.message != "": Text {
+                            text: Vault.message;
+                            color: Theme.danger;
+                            font-size: Theme.font-small;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 16px;
+                            alignment: start;
+                            Hint {
+                                key: "↵";
+                                label: @tr("Open");
+                            }
+                            Hint {
+                                key: "Ctrl C";
+                                label: @tr("Username");
+                            }
+                            Hint {
+                                key: "Ctrl ⇧ C";
+                                label: @tr("Password");
+                            }
+                            Hint {
+                                key: "Ctrl Alt C";
+                                label: @tr("One-time code");
+                            }
+                        }
+                    }
+                }
+
+                if Vault.state == QuickState.list && Vault.item-open: VerticalLayout {
+                    padding: 14px;
+                    padding-top: 2px;
+                    spacing: 12px;
+                    ItemDetail {
+                        vertical-stretch: 1;
+                    }
+                    if Vault.message != "": Text {
+                        text: Vault.message;
+                        color: Theme.danger;
+                        font-size: Theme.font-small;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        spacing: 16px;
+                        alignment: start;
+                        Hint {
+                            key: "Esc";
+                            label: @tr("Back");
+                        }
+                        Hint {
+                            key: "Ctrl C";
+                            label: @tr("Username");
+                        }
+                        Hint {
+                            key: "Ctrl ⇧ C";
+                            label: @tr("Password");
+                        }
+                        Hint {
+                            key: "Ctrl Alt C";
+                            label: @tr("One-time code");
+                        }
+                    }
+                }
+
+                if Vault.state == QuickState.locked: UnlockPanel { }
+
+                if Vault.state == QuickState.message || Vault.state == QuickState.loading: MessagePanel { }
+                }
+            }
+        }
+    }
+
+    Toast {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 52px;
+        text: Vault.copied == Copied.username ? @tr("Username copied")
+            : Vault.copied == Copied.password ? @tr("Password copied")
+            : Vault.copied == Copied.code ? @tr("One-time code copied")
+            : @tr("Copied");
+        shown: Vault.toast-shown;
+        z: 20;
+    }
+}

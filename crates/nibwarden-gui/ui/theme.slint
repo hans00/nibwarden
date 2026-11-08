@@ -1,0 +1,41 @@
+// Design tokens shared by every nibwarden window. Light and dark follow the system
+// colour scheme unless the settings pick one (`mode`).
+import { Palette } from "std-widgets.slint";
+
+export global Theme {
+    // 0 = follow the system, 1 = light, 2 = dark.
+    in-out property <int> mode;
+    out property <bool> dark: mode == 0 ? Palette.color-scheme == ColorScheme.dark : mode == 2;
+
+    // Surfaces
+    out property <color> window: dark ? #17181c : #f6f7f9;
+    out property <color> surface: dark ? #212329 : #ffffff;
+    out property <color> surface-muted: dark ? #2a2d34 : #f1f3f6;
+    out property <color> border: dark ? #353943 : #dfe3e9;
+    out property <color> border-strong: dark ? #4a505c : #c5ccd6;
+
+    // Text
+    out property <color> text: dark ? #eef0f3 : #15181d;
+    out property <color> text-muted: dark ? #9aa1ad : #5f6773;
+    out property <color> text-faint: dark ? #6f7682 : #8c939e;
+
+    // Accent (buttons, focus) and status
+    out property <color> accent: #2f6fed;
+    out property <color> accent-hover: #2560d6;
+    out property <color> accent-pressed: #1d4fb5;
+    out property <color> accent-soft: dark ? #2f6fed33 : #2f6fed1f;
+    out property <color> on-accent: #ffffff;
+    out property <color> danger: dark ? #ff6b6b : #d93636;
+    out property <color> danger-soft: dark ? #ff6b6b1f : #d936361a;
+
+    // Shape and type
+    out property <length> radius-sm: 6px;
+    out property <length> radius: 10px;
+    out property <length> radius-lg: 14px;
+    // Windows: a rounded card with this much transparent room around it for the shadow.
+    out property <length> window-radius: 14px;
+    out property <length> window-margin: 12px;
+    out property <length> font-small: 12px;
+    out property <length> font-body: 13.5px;
+    out property <length> font-title: 19px;
+}

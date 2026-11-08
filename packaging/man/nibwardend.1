@@ -1,0 +1,98 @@
+.TH NIBWARDEND 1 2026-11-06 "nibwarden" "User Commands"
+.SH NAME
+nibwardend \- nibwarden vault daemon
+.SH SYNOPSIS
+.B nibwardend
+.RI [ options ]
+.SH DESCRIPTION
+.B nibwardend
+keeps a Bitwarden or Vaultwarden vault for the user's session.
+It serves
+.BR nibwarden (1)
+and nibwarden's windows on a control socket, and an SSH agent on a second socket.
+.PP
+It normally runs as the systemd user unit
+.BR nibwardend.service ,
+started the first time a nibwarden program needs it;
+there is no need to start it by hand or enable the unit.
+.PP
+The vault is cached on disk encrypted, as the server sends it.
+Unlocked keys stay in memory only, which is locked against swapping and core dumps.
+The vault locks after a period without use, when the screen locks and before suspend
+(see
+.B [lock]
+in
+.BR nibwarden (1)).
+When a program needs the vault while it is locked, or must be approved,
+.B nibwardend
+starts
+.BR nibwarden\-gui (1)
+to ask.
+.SH OPTIONS
+.TP
+.BI \-\-data\-dir " path"
+Where the session and the encrypted vault cache live.
+Default:
+.IR $XDG_DATA_HOME/nibwarden .
+.TP
+.BI \-\-socket " path"
+The control socket.
+Default:
+.IR $XDG_RUNTIME_DIR/nibwarden/daemon.sock .
+.TP
+.BI \-\-ssh\-agent\-socket " path"
+The SSH agent socket.
+Default:
+.I ssh\-agent.sock
+next to the control socket.
+.TP
+.B \-\-no\-ssh\-agent
+Do not serve the SSH agent.
+.TP
+.BI \-\-gui " path"
+The
+.B nibwarden\-gui
+program for its windows.
+Default: next to
+.BR nibwardend .
+.TP
+.BI \-\-lock\-timeout " seconds"
+Lock after this long without vault use; 0 means never.
+Default: the settings file's
+.BR idle_minutes ,
+15 minutes.
+.TP
+.BI \-\-sync\-interval " seconds"
+Sync this often while logged in; 0 syncs only on demand and on the server's notifications.
+Default: 300.
+.SH ENVIRONMENT
+.TP
+.B NIBWARDEN_DATA_DIR\fR, \fBNIBWARDEN_SOCKET\fR, \fBNIBWARDEN_SSH_AGENT_SOCKET\fR, \fBNIBWARDEN_GUI
+Same as the options above.
+.TP
+.B RUST_LOG
+Log filter, for example
+.BR nibwardend=debug .
+Logs go to stderr, which systemd puts in the journal.
+.SH FILES
+.TP
+.I $XDG_RUNTIME_DIR/nibwarden/ssh\-agent.sock
+The SSH agent.
+To use it for every program of the session, copy
+.I /usr/share/doc/nibwarden/examples/60\-nibwarden\-ssh\-agent.conf
+to
+.I ~/.config/environment.d/
+and log in again.
+.TP
+.I /usr/lib/systemd/user/nibwardend.service
+The user unit.
+.SH EXAMPLES
+Follow the daemon's log:
+.PP
+.nf
+journalctl \-\-user \-u nibwardend \-f
+.fi
+.SH SEE ALSO
+.BR nibwarden (1),
+.BR nibwarden\-gui (1),
+.BR nibwarden\-ssh\-sign (1)

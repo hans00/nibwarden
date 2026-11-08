@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>nibwarden</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>nibwarden</name>
+  <summary>Your Bitwarden vault on the desktop</summary>
+  <summary xml:lang="zh-TW">在桌面使用你的 Bitwarden 密碼庫</summary>
+  <summary xml:lang="zh-CN">在桌面使用你的 Bitwarden 密码库</summary>
+  <description>
+    <p>
+      nibwarden keeps a Bitwarden or Vaultwarden vault unlocked for your desktop session and
+      asks before programs use it.
+    </p>
+    <ul>
+      <li>Browse, search and edit the vault, and copy from quick access with the keyboard</li>
+      <li>An SSH agent with the vault's keys; git commits signed with them</li>
+      <li>Secrets for scripts and the command line, approved in a window</li>
+      <li>Locks when idle, when the screen locks and before suspend</li>
+      <li>Bitwarden Send, import and export</li>
+      <li>Unlocks the official Bitwarden browser extension</li>
+    </ul>
+  </description>
+  <url type="homepage">https://github.com/hans00/nibwarden</url>
+  <url type="bugtracker">https://github.com/hans00/nibwarden/issues</url>
+  <developer id="me.hans00">
+    <name>Hans</name>
+  </developer>
+  <launchable type="desktop-id">nibwarden.desktop</launchable>
+  <provides>
+    <binary>nibwarden</binary>
+    <binary>nibwarden-gui</binary>
+    <binary>nibwardend</binary>
+    <binary>nibwarden-ssh-sign</binary>
+    <binary>nibwarden-browser-host</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+    <category>Security</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-06"/>
+  </releases>
+</component>

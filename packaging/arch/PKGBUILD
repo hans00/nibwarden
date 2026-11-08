@@ -1,0 +1,45 @@
+# Maintainer: Hans <me@hans00.me>
+# The AUR recipe. `cargo xtask dist` writes a copy with the version and the source
+# tarball's checksum filled in (target/dist/PKGBUILD).
+pkgname=nibwarden
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Bitwarden-compatible password manager for the Linux desktop'
+url='https://github.com/hans00/nibwarden'
+arch=('x86_64' 'aarch64')
+license=('GPL-3.0-only')
+# The GUI links fontconfig and freetype, and loads the rest at run time.
+depends=('gcc-libs' 'glibc' 'fontconfig' 'freetype2' 'libxkbcommon' 'hicolor-icon-theme' 'ca-certificates')
+makedepends=('cargo')  # 1.92 or newer (Slint)
+optdepends=('wayland: windows on Wayland'
+            'libx11: windows on X11'
+            'libxkbcommon-x11: windows on X11'
+            'libxcursor: windows on X11'
+            'libxrandr: windows on X11'
+            'libxi: windows on X11'
+            'libglvnd: OpenGL drawing (rounded, shadowed windows)'
+            'openssh: SSH agent and git signing'
+            'git: commit signing')
+options=('!lto')
+source=("$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+    cargo build --frozen --release -p nibwarden-cli -p nibwarden-daemon
+    cargo build --frozen --profile release-gui -p nibwarden-gui
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+    cargo run --frozen -p xtask -- install --no-build --destdir "$pkgdir" --prefix /usr
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

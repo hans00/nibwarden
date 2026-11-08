@@ -1,0 +1,41 @@
+[package]
+name = "nibwarden-core"
+description = "nibwarden's wrapper of the Bitwarden SDK (sdk-internal); the only crate that uses it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+bitwarden-api-api = { workspace = true }
+bitwarden-auth = { workspace = true }
+bitwarden-core = { workspace = true }
+bitwarden-crypto = { workspace = true }
+bitwarden-encoding = { workspace = true }
+bitwarden-exporters = { workspace = true }
+bitwarden-generators = { workspace = true }
+bitwarden-importers = { workspace = true }
+bitwarden-pm = { workspace = true }
+bitwarden-send = { workspace = true }
+bitwarden-ssh = { workspace = true }
+bitwarden-state = { workspace = true }
+bitwarden-sync = { workspace = true }
+bitwarden-vault = { workspace = true }
+# A new Send's deletion date; import dates.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# Bitwarden CSV import (the version the SDK exporters use).
+csv = "1.3"
+# The password login request (login.rs).
+form_urlencoded = "1.2"
+nibwarden-platform = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+zeroize = { workspace = true }

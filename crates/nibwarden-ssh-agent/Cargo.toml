@@ -1,0 +1,22 @@
+[package]
+name = "nibwarden-ssh-agent"
+description = "SSH agent protocol server; keys come from the daemon through the Backend trait."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+signature = { workspace = true }
+ssh-key = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-util"] }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "rt", "macros"] }

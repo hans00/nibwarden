@@ -1,0 +1,1037 @@
+// Vault browsing shared by quick access and the main window (phase2.md §7, P2-M7): the
+// state lives in the `Vault` global, which the Rust side (`vault_ui.rs`) drives the same
+// way for both windows.
+import { Theme } from "theme.slint";
+import { AppMark, Avatar, Button, CopyChip, CountdownRing, IconButton, Icon, Icons, PasswordField, ScrollBar, Spinner } from "components.slint";
+import { UnlockError } from "unlock.slint";
+
+export struct QuickItem {
+    kind: string,
+    favorite: bool,
+    name: string,
+    subtitle: string,
+    folder: string,
+    initial: string,
+    has-username: bool,
+    has-password: bool,
+    has-totp: bool,
+    has-website: bool,
+    trashed: bool,
+}
+
+export enum QuickState { loading, locked, list, message }
+export enum CopyField { username, password, code }
+// Known reasons the list cannot be shown; anything else comes as `message`.
+export enum QuickNotice { none, logged-out, no-daemon }
+// `note`: several lines, hidden until revealed (a private key); `multiline`: several
+// lines shown as they are (notes); `info`: shown only, nothing to copy (item history).
+export enum FieldKind { text, secret, code, website, note, multiline, info }
+// Which field a label is for; `custom` shows the item's own field name, `value` a
+// card, identity or SSH key value by key (see `Labels.value`).
+export enum FieldLabel { custom, username, password, code, website, notes, value, created, revised, password-revised }
+
+// A card of the open item's fields: `count` rows of `Vault.fields` from `start`, under
+// a title (see `Labels.group`).
+export struct FieldGroup {
+    title: string,
+    start: int,
+    count: int,
+}
+
+// Names of item kinds and of their values (the keys of nibwarden-ipc's ITEM_KINDS).
+export global Labels {
+    public pure function value(key: string) -> string {
+        return key == "username" ? @tr("Username")
+            : key == "password" ? @tr("Password")
+            : key == "totp" ? @tr("Authenticator key (TOTP)")
+            : key == "cardholder_name" ? @tr("Cardholder name")
+            : key == "brand" ? @tr("Brand")
+            : key == "number" ? @tr("Number")
+            : key == "exp_month" ? @tr("Expiration month")
+            : key == "exp_year" ? @tr("Expiration year")
+            : key == "code" ? @tr("Security code")
+            : key == "title" ? @tr("Title")
+            : key == "first_name" ? @tr("First name")
+            : key == "middle_name" ? @tr("Middle name")
+            : key == "last_name" ? @tr("Last name")
+            : key == "company" ? @tr("Company")
+            : key == "email" ? @tr("Email")
+            : key == "phone" ? @tr("Phone")
+            : key == "ssn" ? @tr("Social security number")
+            : key == "passport_number" ? @tr("Passport number")
+            : key == "license_number" ? @tr("License number")
+            : key == "address1" ? @tr("Address 1")
+            : key == "address2" ? @tr("Address 2")
+            : key == "address3" ? @tr("Address 3")
+            : key == "city" ? @tr("City / Town")
+            : key == "state" ? @tr("State / Province")
+            : key == "postal_code" ? @tr("Zip / Postal code")
+            : key == "country" ? @tr("Country")
+            : key == "private_key" ? @tr("Private key")
+            : key == "public_key" ? @tr("Public key")
+            : key == "fingerprint" ? @tr("Fingerprint")
+            : key;
+    }
+
+    // The cards an item's fields are grouped in, as Bitwarden groups them.
+    public pure function group(key: string) -> string {
+        return key == "login" ? @tr("Login credentials")
+            : key == "websites" ? @tr("Websites")
+            : key == "card" ? @tr("Card details")
+            : key == "personal" ? @tr("Personal details")
+            : key == "identification" ? @tr("Identification")
+            : key == "contact" ? @tr("Contact information")
+            : key == "ssh_key" ? @tr("SSH key")
+            : key == "custom" ? @tr("Custom fields")
+            : key == "notes" ? @tr("Notes")
+            : key == "options" ? @tr("Additional options")
+            : key == "details" ? @tr("Item details")
+            : key == "history" ? @tr("Item history")
+            : key == "password_history" ? @tr("Password history")
+            : key;
+    }
+
+    // "New login", "New card", ...
+    public pure function new-item(kind: string) -> string {
+        return kind == "login" ? @tr("New login")
+            : kind == "note" ? @tr("New secure note")
+            : kind == "card" ? @tr("New card")
+            : kind == "identity" ? @tr("New identity")
+            : kind == "ssh_key" ? @tr("New SSH key")
+            : @tr("New item");
+    }
+
+    public pure function kind(kind: string) -> string {
+        return kind == "login" ? @tr("Login")
+            : kind == "note" ? @tr("Secure note")
+            : kind == "card" ? @tr("Card")
+            : kind == "identity" ? @tr("Identity")
+            : kind == "ssh_key" ? @tr("SSH key")
+            : kind;
+    }
+}
+
+// One value of the edit form (see `Labels.value` for the keys).
+export struct EditValue {
+    key: string,
+    value: string,
+    secret: bool,
+    multiline: bool,
+    readonly: bool,
+}
+
+// A custom field of the edit form; `kind` is `text`, `hidden` or `boolean`.
+export struct EditCustom {
+    name: string,
+    value: string,
+    kind: string,
+}
+// Why the form could not be filled from a file or the screen.
+export enum EditProblem { none, no-qr-code, not-a-key, unreadable, no-screenshot }
+
+// What was just copied, for the confirmation.
+export enum Copied { other, username, password, code, link }
+
+// One field of the open item.
+export struct ItemField {
+    standard: FieldLabel,
+    label: string,
+    // The value if known (secrets only once revealed); empty otherwise.
+    value: string,
+    kind: FieldKind,
+    revealed: bool,
+    // Seconds left for a one-time code, of `period`; 0 when unknown.
+    remaining: int,
+    period: int,
+}
+
+export component SearchField inherits Rectangle {
+    in-out property <string> text;
+    out property <bool> has-focus: input.has-focus;
+    callback edited(string);
+    forward-focus: input;
+    height: 50px;
+    border-radius: Theme.radius;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.border-strong;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 20px;
+            height: 20px;
+            commands: Icons.search;
+            color: Theme.text-muted;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            input := TextInput {
+                width: 100%;
+                height: 100%;
+                vertical-alignment: center;
+                single-line: true;
+                text <=> root.text;
+                color: Theme.text;
+                font-size: 17px;
+                selection-background-color: Theme.accent-soft;
+                accessible-label: @tr("Search");
+                edited => {
+                    root.edited(self.text);
+                }
+            }
+            if root.text == "": Text {
+                width: 100%;
+                height: 100%;
+                vertical-alignment: center;
+                text: @tr("Search");
+                color: Theme.text-faint;
+                font-size: 17px;
+            }
+        }
+    }
+}
+
+export component Row inherits Rectangle {
+    in property <QuickItem> item;
+    in property <bool> selected;
+    // Copy buttons on the selected row (quick access; the main window has the item pane).
+    in property <bool> actions: true;
+    // Edit, favourite and trash in the context menu (main window).
+    in property <bool> manage: false;
+    callback chosen();
+    callback opened();
+    callback copy(CopyField);
+    callback open-website();
+    callback manage-item(string);
+    height: 56px;
+    border-radius: Theme.radius-sm + 2px;
+    background: selected ? Theme.accent-soft : touch.has-hover ? Theme.surface-muted : transparent;
+    accessible-role: list-item;
+    accessible-label: root.item.name + " " + root.item.subtitle;
+    accessible-item-selected: root.selected;
+    touch := TouchArea {
+        clicked => {
+            root.chosen();
+            root.opened();
+        }
+    }
+    ContextMenuArea {
+        Menu {
+            MenuItem {
+                title: @tr("Open");
+                activated => {
+                    root.chosen();
+                    root.opened();
+                }
+            }
+            if root.item.has-username: MenuItem {
+                title: @tr("Copy username");
+                activated => {
+                    root.copy(CopyField.username);
+                }
+            }
+            if root.item.has-password: MenuItem {
+                title: @tr("Copy password");
+                activated => {
+                    root.copy(CopyField.password);
+                }
+            }
+            if root.item.has-totp: MenuItem {
+                title: @tr("Copy one-time code");
+                activated => {
+                    root.copy(CopyField.code);
+                }
+            }
+            if root.item.has-website: MenuItem {
+                title: @tr("Open website");
+                activated => {
+                    root.open-website();
+                }
+            }
+            if root.manage && !root.item.trashed: MenuSeparator { }
+            if root.manage && !root.item.trashed: MenuItem {
+                title: @tr("Edit");
+                activated => {
+                    root.manage-item("edit");
+                }
+            }
+            if root.manage && !root.item.trashed: MenuItem {
+                title: root.item.favorite ? @tr("Remove from favorites") : @tr("Add to favorites");
+                activated => {
+                    root.manage-item("favorite");
+                }
+            }
+            if root.manage && !root.item.trashed: MenuItem {
+                title: @tr("Move to trash");
+                activated => {
+                    root.manage-item("trash");
+                }
+            }
+            if root.manage && root.item.trashed: MenuSeparator { }
+            if root.manage && root.item.trashed: MenuItem {
+                title: @tr("Restore");
+                activated => {
+                    root.manage-item("restore");
+                }
+            }
+            if root.manage && root.item.trashed: MenuItem {
+                title: @tr("Delete permanently");
+                activated => {
+                    root.manage-item("delete");
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 12px;
+        Avatar {
+            y: (parent.height - self.height) / 2;
+            width: 34px;
+            height: 34px;
+            initial: root.item.initial;
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.item.name;
+                color: Theme.text;
+                font-size: Theme.font-body + 1px;
+                font-weight: 600;
+                overflow: elide;
+            }
+            if root.item.subtitle != "": Text {
+                text: root.item.subtitle;
+                color: Theme.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+            }
+        }
+        if root.item.folder != "" && !(root.selected && root.actions): Rectangle {
+            y: (parent.height - self.height) / 2;
+            height: 22px;
+            border-radius: 11px;
+            background: Theme.surface-muted;
+            HorizontalLayout {
+                padding-left: 9px;
+                padding-right: 9px;
+                Text {
+                    text: root.item.folder;
+                    color: Theme.text-muted;
+                    font-size: Theme.font-small;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        // Quick copy for the selected row, like Bitwarden's list.
+        if root.selected && root.actions && root.item.has-username: CopyChip {
+            y: (parent.height - self.height) / 2;
+            text: @tr("Username");
+            clicked => {
+                root.copy(CopyField.username);
+            }
+        }
+        if root.selected && root.actions && root.item.has-password: CopyChip {
+            y: (parent.height - self.height) / 2;
+            text: @tr("Password");
+            clicked => {
+                root.copy(CopyField.password);
+            }
+        }
+        if root.selected && root.actions && root.item.has-totp: CopyChip {
+            y: (parent.height - self.height) / 2;
+            text: @tr("Code");
+            clicked => {
+                root.copy(CopyField.code);
+            }
+        }
+        if root.selected && root.actions: Icon {
+            y: (parent.height - self.height) / 2;
+            width: 16px;
+            height: 16px;
+            commands: Icons.chevron-right;
+            color: Theme.text-muted;
+        }
+    }
+}
+
+export component FieldRow inherits Rectangle {
+    in property <ItemField> field;
+    callback copy();
+    callback reveal();
+    // Websites: open in the browser.
+    callback open();
+    // Shown as dots until revealed.
+    property <bool> hideable: root.field.kind == FieldKind.secret || root.field.kind == FieldKind.note;
+    property <bool> masked: root.hideable && !root.field.revealed;
+    property <bool> website: root.field.kind == FieldKind.website;
+    property <bool> info: root.field.kind == FieldKind.info;
+    property <bool> lines: root.field.kind == FieldKind.note || root.field.kind == FieldKind.multiline;
+    min-height: root.website ? 44px : root.info ? 50px : 58px;
+    background: !root.info && touch.has-hover ? Theme.surface-muted : transparent;
+    accessible-role: button;
+    accessible-label: root.field.label;
+    accessible-action-default => {
+        if (root.website) {
+            root.open();
+        } else if (!root.info) {
+            root.copy();
+        }
+    }
+    // Clicking a field copies it (Bitwarden users asked for exactly this); a website opens.
+    touch := TouchArea {
+        enabled: !root.info;
+        mouse-cursor: root.info ? MouseCursor.default : MouseCursor.pointer;
+        clicked => {
+            if (root.website) {
+                root.open();
+            } else {
+                root.copy();
+            }
+        }
+    }
+    if !root.info: ContextMenuArea {
+        Menu {
+            if root.website: MenuItem {
+                title: @tr("Open website");
+                activated => {
+                    root.open();
+                }
+            }
+            MenuItem {
+                title: @tr("Copy");
+                activated => {
+                    root.copy();
+                }
+            }
+            if root.hideable: MenuItem {
+                title: root.field.revealed ? @tr("Hide") : @tr("Show");
+                activated => {
+                    root.reveal();
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 8px;
+        padding-top: root.website ? 4px : 9px;
+        padding-bottom: root.website ? 4px : 9px;
+        spacing: 8px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 3px;
+            alignment: center;
+            // A website needs no label: the card says what they are.
+            if !root.website: Text {
+                text: root.field.standard == FieldLabel.username ? @tr("Username")
+                    : root.field.standard == FieldLabel.password ? @tr("Password")
+                    : root.field.standard == FieldLabel.code ? @tr("One-time code")
+                    : root.field.standard == FieldLabel.notes ? @tr("Notes")
+                    : root.field.standard == FieldLabel.value ? Labels.value(root.field.label)
+                    : root.field.standard == FieldLabel.created ? @tr("Created")
+                    : root.field.standard == FieldLabel.revised ? @tr("Last edited")
+                    : root.field.standard == FieldLabel.password-revised ? @tr("Password updated")
+                    : root.field.label;
+                color: Theme.text-muted;
+                font-size: Theme.font-small;
+            }
+            // Masked: drawn dots, not a bullet character (which may come from a wide CJK
+            // fallback font).
+            if root.masked: HorizontalLayout {
+                height: 22px;
+                spacing: 5px;
+                alignment: start;
+                for i in 10: Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 3.5px;
+                    background: Theme.text;
+                }
+            }
+            if !root.masked: Text {
+                text: root.field.value;
+                color: root.website ? Theme.accent : Theme.text;
+                font-size: root.field.kind == FieldKind.code ? 20px : Theme.font-body + 1px;
+                font-weight: root.field.kind == FieldKind.code ? 600 : 400;
+                letter-spacing: root.field.kind == FieldKind.code ? 2px : 0;
+                wrap: root.lines ? word-wrap : no-wrap;
+                overflow: root.lines ? clip : elide;
+            }
+        }
+        // Centred like the buttons: in a layout, `y` is the layout's to set.
+        if root.field.kind == FieldKind.code && root.field.remaining > 0: VerticalLayout {
+            alignment: center;
+            CountdownRing {
+                remaining: root.field.remaining;
+                period: root.field.period > 0 ? root.field.period : 30;
+            }
+        }
+        if !root.info: HorizontalLayout {
+            horizontal-stretch: 0;
+            cross-axis-alignment: center;
+            spacing: 4px;
+            if root.hideable: IconButton {
+                icon: root.field.revealed ? Icons.eye-off : Icons.eye;
+                label: root.field.revealed ? @tr("Hide") : @tr("Show");
+                clicked => {
+                    root.reveal();
+                }
+            }
+            if root.website: IconButton {
+                icon: Icons.external;
+                label: @tr("Open website");
+                clicked => {
+                    root.open();
+                }
+            }
+            if root.website: IconButton {
+                icon: Icons.copy;
+                label: @tr("Copy");
+                clicked => {
+                    root.copy();
+                }
+            }
+            if !root.website: CopyChip {
+                text: @tr("Copy");
+                clicked => {
+                    root.copy();
+                }
+            }
+        }
+    }
+}
+
+export component Key inherits Rectangle {
+    in property <string> text;
+    height: 20px;
+    border-radius: 5px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        Text {
+            text: root.text;
+            color: Theme.text-muted;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component Hint inherits HorizontalLayout {
+    in property <string> key;
+    in property <string> label;
+    spacing: 6px;
+    Key {
+        text: root.key;
+    }
+    Text {
+        text: root.label;
+        color: Theme.text-muted;
+        font-size: Theme.font-small;
+        vertical-alignment: center;
+    }
+}
+
+
+// A sidebar entry of the main window: all items, favourites, a kind, or a folder.
+export struct Category {
+    label: string,
+    // `all`, `favorites`, `login`, `card`, `identity`, `note`, `ssh_key`, or `folder`.
+    kind: string,
+    count: int,
+}
+
+export global Vault {
+    in-out property <QuickState> state;
+    in-out property <[QuickItem]> items;
+    in-out property <int> selected;
+    in-out property <string> query;
+    in-out property <string> email;
+    in-out property <string> initial;
+    // Locked state.
+    in-out property <UnlockError> error;
+    in-out property <bool> busy;
+    in-out property <string> password;
+    // The open item.
+    in-out property <bool> item-open;
+    in-out property <string> item-name;
+    in-out property <string> item-folder;
+    in-out property <string> item-initial;
+    in-out property <[ItemField]> fields;
+    // `fields` in cards.
+    in-out property <[FieldGroup]> groups;
+    // "Password copied" and the like, shown briefly.
+    in-out property <Copied> copied;
+    in-out property <bool> toast-shown;
+    // Shown under the list, or alone in the message state.
+    in-out property <string> message;
+    in-out property <QuickNotice> notice;
+    // Main window: categories in the sidebar, and which one is shown.
+    in-out property <[Category]> categories;
+    in-out property <int> category;
+    in-out property <bool> syncing;
+    // Bumped when the list (re)appears, so the window focuses its search field.
+    in-out property <int> focus-request;
+    // The open item, for the main window's actions.
+    in-out property <bool> item-favorite;
+    in-out property <bool> item-trashed;
+    // Editing (main window): the form replaces the item view.
+    in-out property <bool> editing;
+    in-out property <bool> edit-new;
+    in-out property <string> edit-kind;
+    in-out property <string> edit-name;
+    in-out property <string> edit-notes;
+    in-out property <bool> edit-favorite;
+    in-out property <bool> edit-reprompt;
+    in-out property <[EditValue]> edit-values;
+    // `edit-values` in cards.
+    in-out property <[FieldGroup]> edit-groups;
+    in-out property <[string]> edit-uris;
+    in-out property <[EditCustom]> edit-fields;
+    // Folder names, "No folder" first; `edit-folder` indexes it.
+    in-out property <[string]> folders;
+    in-out property <int> edit-folder;
+    in-out property <bool> saving;
+    in-out property <string> edit-error;
+    in-out property <EditProblem> edit-problem;
+    // A QR code can be read from the screen (else only from an image file).
+    in-out property <bool> can-scan-screen;
+    // The password generator: open, for which row of `edit-values` (-1: on its own, to
+    // copy), its options and the value.
+    in-out property <bool> gen-open;
+    in-out property <int> gen-target: -1;
+    in-out property <bool> gen-passphrase;
+    in-out property <int> gen-length: 20;
+    in-out property <bool> gen-upper: true;
+    in-out property <bool> gen-lower: true;
+    in-out property <bool> gen-numbers: true;
+    in-out property <bool> gen-special: true;
+    in-out property <bool> gen-avoid-ambiguous;
+    in-out property <int> gen-words: 4;
+    in-out property <string> gen-separator: "-";
+    in-out property <bool> gen-capitalize;
+    in-out property <bool> gen-include-number;
+    in-out property <string> gen-value;
+    in-out property <string> gen-error;
+    // Asking before deleting an item for good, and its name.
+    in-out property <bool> confirm-delete;
+    in-out property <string> delete-name;
+
+    callback search(string);
+    // Copy from the list (row) or the open item (row = -1).
+    callback copy(int, CopyField);
+    callback open(int);
+    callback back();
+    callback copy-field(int);
+    // Websites: of a list row, and of an open item's field.
+    callback open-website(int);
+    callback open-field(int);
+    callback reveal-field(int);
+    callback unlock();
+    callback close();
+    callback choose-category(int);
+    callback lock();
+    // Log out: the vault's local copy is deleted; signing in again needs the server.
+    callback sign-out();
+    callback sync();
+    callback open-settings();
+    // Quick access: the main window, e.g. to sign in.
+    callback open-main();
+    // Changing the vault (main window).
+    callback new-item(string);
+    callback edit-item();
+    callback edit-value(int, string);
+    callback edit-uri(int, string);
+    callback add-uri();
+    callback remove-uri(int);
+    // `text`, `hidden` or `boolean`.
+    callback add-field(string);
+    callback edit-field-name(int, string);
+    callback edit-field-value(int, string);
+    callback remove-field(int);
+    // Opens the generator for a row of `edit-values`, or on its own (-1).
+    callback generate-password(int);
+    callback gen-refresh();
+    callback gen-copy();
+    // Puts the value into the form and closes the generator.
+    callback gen-use();
+    // A private key from a file, into a row of `edit-values`.
+    callback import-key(int);
+    // An authenticator QR code into a row: from the screen (true) or an image file.
+    callback scan-qr(int, bool);
+    callback save-edit();
+    callback cancel-edit();
+    callback toggle-favorite();
+    // The same from a list row's context menu: `edit`, `favorite`, `trash`, `restore` or
+    // `delete` (which asks first).
+    callback manage(int, string);
+    callback trash-item();
+    callback restore-item();
+    callback delete-item();
+}
+
+// The item list, selection included, with a scroll bar.
+export component ItemList inherits Rectangle {
+    in property <bool> actions: true;
+    in property <bool> manage: false;
+    in-out property <length> viewport-y <=> flick.content-y;
+    property <length> row-height: 56px;
+
+    // Moves the selection by `delta` rows and keeps it in view.
+    public function move(delta: int) {
+        Vault.selected = max(0, min(Vault.selected + delta, Vault.items.length - 1));
+        if (Vault.selected * row-height + flick.content-y < 0) {
+            flick.content-y = -Vault.selected * row-height;
+        } else if ((Vault.selected + 1) * row-height + flick.content-y > flick.height) {
+            flick.content-y = flick.height - (Vault.selected + 1) * row-height;
+        }
+    }
+
+    flick := Flickable {
+        content-height: Vault.items.length * row-height;
+
+        for item[index] in Vault.items: Row {
+            y: index * row-height;
+            width: parent.width;
+            item: item;
+            // The main window highlights only the item it shows: after a delete, the row
+            // that moves up into place is not shown yet.
+            selected: index == Vault.selected && (!root.manage || Vault.item-open);
+            actions: root.actions;
+            manage: root.manage;
+            manage-item(action) => {
+                Vault.selected = index;
+                Vault.manage(index, action);
+            }
+            chosen => {
+                Vault.selected = index;
+            }
+            opened => {
+                Vault.open(index);
+            }
+            copy(field) => {
+                Vault.copy(index, field);
+            }
+            open-website => {
+                Vault.open-website(index);
+            }
+        }
+        if Vault.items.length == 0: Text {
+            // From the top: centred in the empty viewport (0px high), it would sit half above.
+            y: 0;
+            width: parent.width;
+            height: 120px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            text: Vault.query == "" ? @tr("Your vault is empty") : @tr("No matching items");
+            color: Theme.text-muted;
+            font-size: Theme.font-body;
+        }
+    }
+    ScrollBar {
+        x: parent.width - self.width;
+        height: parent.height;
+        content: flick.content-height;
+        view: flick.height;
+        offset <=> flick.content-y;
+    }
+}
+
+// The open item: header and fields.
+export component ItemDetail inherits VerticalLayout {
+    in property <bool> back-button: true;
+    // Favourite, edit, trash (or restore and delete, in the trash): main window only.
+    in property <bool> actions: false;
+    spacing: 12px;
+    Rectangle {
+        height: header.preferred-height;
+        // Right-click on the item's title: the same actions as its buttons.
+        if root.actions: ContextMenuArea {
+            Menu {
+                if !Vault.item-trashed: MenuItem {
+                    title: @tr("Edit");
+                    activated => {
+                        Vault.edit-item();
+                    }
+                }
+                if !Vault.item-trashed: MenuItem {
+                    title: Vault.item-favorite ? @tr("Remove from favorites") : @tr("Add to favorites");
+                    activated => {
+                        Vault.toggle-favorite();
+                    }
+                }
+                if !Vault.item-trashed: MenuItem {
+                    title: @tr("Move to trash");
+                    activated => {
+                        Vault.trash-item();
+                    }
+                }
+                if Vault.item-trashed: MenuItem {
+                    title: @tr("Restore");
+                    activated => {
+                        Vault.restore-item();
+                    }
+                }
+                if Vault.item-trashed: MenuItem {
+                    title: @tr("Delete permanently");
+                    activated => {
+                        Vault.manage(-1, "delete");
+                    }
+                }
+            }
+        }
+        header := HorizontalLayout {
+            spacing: 10px;
+            cross-axis-alignment: center;
+            if root.back-button: IconButton {
+                icon: Icons.chevron-left;
+                label: @tr("Back");
+                size: 34px;
+                clicked => {
+                    Vault.back();
+                }
+            }
+            Avatar {
+                width: 40px;
+                height: 40px;
+                initial: Vault.item-initial;
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                horizontal-stretch: 1;
+                Text {
+                    text: Vault.item-name;
+                    color: Theme.text;
+                    font-size: Theme.font-title - 1px;
+                    font-weight: 700;
+                    overflow: elide;
+                }
+                if Vault.item-folder != "" || Vault.item-trashed: Text {
+                    text: Vault.item-trashed ? @tr("In the trash") : Vault.item-folder;
+                    color: Vault.item-trashed ? Theme.danger : Theme.text-muted;
+                    font-size: Theme.font-small;
+                }
+            }
+            if root.actions && !Vault.item-trashed: HorizontalLayout {
+                horizontal-stretch: 0;
+                cross-axis-alignment: center;
+                spacing: 4px;
+                IconButton {
+                    icon: Icons.star;
+                    label: Vault.item-favorite ? @tr("Remove from favorites") : @tr("Add to favorites");
+                    tint: Vault.item-favorite ? #e8a317 : Theme.text-muted;
+                    size: 34px;
+                    clicked => {
+                        Vault.toggle-favorite();
+                    }
+                }
+                IconButton {
+                    icon: Icons.trash;
+                    label: @tr("Move to trash");
+                    size: 34px;
+                    clicked => {
+                        Vault.trash-item();
+                    }
+                }
+                CopyChip {
+                    text: @tr("Edit");
+                    icon: Icons.edit;
+                    clicked => {
+                        Vault.edit-item();
+                    }
+                }
+            }
+            if root.actions && Vault.item-trashed: HorizontalLayout {
+                horizontal-stretch: 0;
+                cross-axis-alignment: center;
+                spacing: 6px;
+                CopyChip {
+                    text: @tr("Restore");
+                    icon: Icons.restore;
+                    clicked => {
+                        Vault.restore-item();
+                    }
+                }
+                CopyChip {
+                    text: @tr("Delete permanently");
+                    icon: Icons.trash;
+                    clicked => {
+                        Vault.manage(-1, "delete");
+                    }
+                }
+            }
+        }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        scroll := Flickable {
+            width: 100%;
+            height: 100%;
+            content-height: cards.preferred-height;
+            cards := VerticalLayout {
+                width: parent.width;
+                spacing: 18px;
+                padding-bottom: 12px;
+                for group in Vault.groups: VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: Labels.group(group.title);
+                        color: Theme.text-muted;
+                        font-size: Theme.font-small;
+                        font-weight: 600;
+                    }
+                    Rectangle {
+                        border-radius: Theme.radius;
+                        background: Theme.surface;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        clip: true;
+                        VerticalLayout {
+                            for i in group.count: VerticalLayout {
+                                if i > 0: Rectangle {
+                                    height: 1px;
+                                    background: Theme.border;
+                                }
+                                FieldRow {
+                                    field: Vault.fields[group.start + i];
+                                    copy => {
+                                        Vault.copy-field(group.start + i);
+                                    }
+                                    reveal => {
+                                        Vault.reveal-field(group.start + i);
+                                    }
+                                    open => {
+                                        Vault.open-field(group.start + i);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ScrollBar {
+            x: parent.width - self.width;
+            height: parent.height;
+            content: scroll.content-height;
+            view: scroll.height;
+            offset <=> scroll.content-y;
+        }
+    }
+}
+
+// The locked state: master password, with a spinner while it is checked.
+export component UnlockPanel inherits VerticalLayout {
+    padding: 40px;
+    padding-top: 24px;
+    spacing: 0px;
+    alignment: start;
+    HorizontalLayout {
+        alignment: center;
+        AppMark { }
+    }
+    Rectangle { height: 18px; }
+    Text {
+        text: @tr("Unlock nibwarden");
+        horizontal-alignment: center;
+        color: Theme.text;
+        font-size: Theme.font-title;
+        font-weight: 700;
+    }
+    Rectangle { height: 6px; }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 8px;
+        Avatar {
+            initial: Vault.initial;
+            width: 20px;
+            height: 20px;
+        }
+        Text {
+            text: Vault.email;
+            color: Theme.text-muted;
+            font-size: Theme.font-body;
+            vertical-alignment: center;
+        }
+    }
+    Rectangle { height: 28px; }
+    HorizontalLayout {
+        alignment: center;
+        PasswordField {
+            width: min(440px, root.width - 80px);
+            text <=> Vault.password;
+            enabled: !Vault.busy;
+            busy: Vault.busy;
+            error: Vault.error != UnlockError.none;
+            accepted => {
+                Vault.unlock();
+            }
+            init => {
+                self.focus();
+            }
+        }
+    }
+    HorizontalLayout {
+        padding-top: 12px;
+        spacing: 8px;
+        alignment: center;
+        if !Vault.busy && Vault.error != UnlockError.none: Icon {
+            width: 15px;
+            height: 15px;
+            commands: Icons.alert;
+            color: Theme.danger;
+        }
+        if !Vault.busy && Vault.error != UnlockError.none: Text {
+            text: @tr("Wrong master password.");
+            color: Theme.danger;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Loading, or why there is nothing to show.
+export component MessagePanel inherits VerticalLayout {
+    alignment: center;
+    padding: 40px;
+    spacing: 12px;
+    property <string> text: Vault.notice == QuickNotice.logged-out ? @tr("Not signed in. Sign in in the nibwarden window.")
+        : Vault.notice == QuickNotice.no-daemon ? @tr("nibwardend is not running.")
+        : Vault.message;
+    if Vault.state == QuickState.loading: HorizontalLayout {
+        alignment: center;
+        Spinner {
+            width: 24px;
+            height: 24px;
+        }
+    }
+    Text {
+        text: Vault.state == QuickState.loading ? @tr("Loading…") : root.text;
+        horizontal-alignment: center;
+        color: Theme.text-muted;
+        font-size: Theme.font-body;
+        wrap: word-wrap;
+    }
+    if Vault.state == QuickState.message && Vault.notice == QuickNotice.logged-out: HorizontalLayout {
+        alignment: center;
+        Button {
+            text: @tr("Open nibwarden");
+            primary: true;
+            clicked => {
+                Vault.open-main();
+            }
+        }
+    }
+}

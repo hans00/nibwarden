@@ -1,0 +1,1066 @@
+# Simplified Chinese translation of nibwarden-gui.
+msgid ""
+msgstr ""
+"Project-Id-Version: nibwarden-gui\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Unlock nibwarden"
+msgstr "解锁 nibwarden"
+
+msgid "Unlock"
+msgstr "解锁"
+
+msgid "Master password"
+msgstr "主密码"
+
+msgid "wants to use your vault"
+msgstr "想要使用你的密码库"
+
+msgid "and {n} more program"
+msgid_plural "and {n} more programs"
+msgstr[0] "还有 {n} 个程序在等待"
+
+msgid "Wrong master password."
+msgstr "主密码错误。"
+
+msgid "Press Enter to unlock"
+msgstr "按 Enter 解锁"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Show password"
+msgstr "显示密码"
+
+msgid "Hide password"
+msgstr "隐藏密码"
+
+msgid "Confirm with master password"
+msgstr "用主密码确认"
+
+msgid "Unlock to allow"
+msgstr "解锁并允许"
+
+msgid "Unlocking allows this request"
+msgstr "解锁即允许此请求"
+
+msgid "This item asks for your master password"
+msgstr "此项目要求再次输入主密码"
+
+msgid "Allow access?"
+msgstr "允许访问？"
+
+msgid "Only allow programs you started"
+msgstr "只允许你自己启动的程序"
+
+msgid "Deny"
+msgstr "拒绝"
+
+msgid "Allow"
+msgstr "允许"
+
+msgid "password"
+msgstr "密码"
+
+msgid "username"
+msgstr "用户名"
+
+msgid "one-time code"
+msgstr "一次性验证码"
+
+msgid "notes"
+msgstr "备注"
+
+msgid "website"
+msgstr "网址"
+
+msgid "wants to read the {0} of \"{1}\""
+msgstr "想要读取“{1}”的{0}"
+
+msgid "wants to log in as {0} with the SSH key \"{1}\""
+msgstr "想以 {0} 的身份，使用 SSH 密钥“{1}”登录"
+
+msgid "wants to sign a git commit with the SSH key \"{0}\""
+msgstr "想使用 SSH 密钥“{0}”签署 git 提交"
+
+msgid "wants to sign \"{0}\" data with the SSH key \"{1}\""
+msgstr "想使用 SSH 密钥“{1}”签署“{0}”数据"
+
+msgid "wants to sign with the SSH key \"{0}\""
+msgstr "想使用 SSH 密钥“{0}”签名"
+
+msgid "Quick access"
+msgstr "快速访问"
+
+msgid "Search"
+msgstr "搜索"
+
+msgid "Password copied"
+msgstr "已复制密码"
+
+msgid "Username copied"
+msgstr "已复制用户名"
+
+msgid "One-time code copied"
+msgstr "已复制一次性验证码"
+
+msgid "Your vault is empty"
+msgstr "密码库是空的"
+
+msgid "No matching items"
+msgstr "没有匹配的项目"
+
+msgid "Copy password"
+msgstr "复制密码"
+
+msgid "Username"
+msgstr "用户名"
+
+msgid "One-time code"
+msgstr "验证码"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Loading…"
+msgstr "加载中…"
+
+
+msgid "nibwardend is not running."
+msgstr "nibwardend 没有运行。"
+
+msgid "nibwarden settings"
+msgstr "nibwarden 设置"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Appearance"
+msgstr "外观"
+
+msgid "Theme"
+msgstr "主题"
+
+msgid "System"
+msgstr "跟随系统"
+
+msgid "Light"
+msgstr "浅色"
+
+msgid "Dark"
+msgstr "深色"
+
+msgid "Language"
+msgstr "语言"
+
+msgid "Locking"
+msgstr "锁定"
+
+msgid "Lock after inactivity"
+msgstr "闲置后自动锁定"
+
+msgid "1 min"
+msgstr "1 分钟"
+
+msgid "5 min"
+msgstr "5 分钟"
+
+msgid "15 min"
+msgstr "15 分钟"
+
+msgid "30 min"
+msgstr "30 分钟"
+
+msgid "1 hour"
+msgstr "1 小时"
+
+msgid "Never"
+msgstr "永不"
+
+msgid "Lock when the screen locks"
+msgstr "屏幕锁定时锁定"
+
+msgid "Lock before the computer sleeps"
+msgstr "电脑休眠前锁定"
+
+msgid "Clipboard"
+msgstr "剪贴板"
+
+msgid "Clear copied passwords and codes"
+msgstr "自动清除复制的密码与验证码"
+
+msgid "Clear after"
+msgstr "清除时间"
+
+msgid "30 s"
+msgstr "30 秒"
+
+msgid "90 s"
+msgstr "90 秒"
+
+msgid "2 min"
+msgstr "2 分钟"
+
+msgid "Confirmation"
+msgstr "使用前确认"
+
+msgid "Ask before programs read secrets"
+msgstr "程序读取密码前询问"
+
+msgid "Keyboard shortcut"
+msgstr "快捷键"
+
+msgid "Ctrl+Shift+Space opens quick access."
+msgstr "Ctrl+Shift+Space 打开快速访问。"
+
+msgid "Set up"
+msgstr "设置"
+
+msgid "Copy username"
+msgstr "复制用户名"
+
+msgid "Copy one-time code"
+msgstr "复制验证码"
+
+msgid "Password"
+msgstr "密码"
+
+msgid "Notes"
+msgstr "备注"
+
+msgid "Hide"
+msgstr "隐藏"
+
+msgid "Show"
+msgstr "显示"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Open"
+msgstr "打开"
+
+msgid "Back"
+msgstr "返回"
+
+msgid "Copied"
+msgstr "已复制"
+
+msgid "Code"
+msgstr "验证码"
+
+msgid "One request"
+msgstr "单次请求"
+
+msgid "Per application"
+msgstr "每个应用程序"
+
+msgid "Per terminal tab"
+msgstr "每个终端标签页"
+
+msgid "Allow secret reads when no window can be shown"
+msgstr "无法显示窗口时允许读取机密"
+
+msgid "Every application may use it until nibwarden locks."
+msgstr "在 nibwarden 锁定前，所有应用程序都可以使用。"
+
+msgid "You will be asked again for every request."
+msgstr "每次请求都会再询问你。"
+
+msgid "Allowed until nibwarden locks, in this terminal tab of {0}."
+msgstr "在 nibwarden 锁定前，于 {0} 的这个终端标签页内有效。"
+
+msgid "Allowed until nibwarden locks, in this terminal tab."
+msgstr "在 nibwarden 锁定前，于这个终端标签页内有效。"
+
+msgid "Allowed until nibwarden locks or {0} quits."
+msgstr "在 nibwarden 锁定或 {0} 退出前有效。"
+
+msgid "Allowed until nibwarden locks."
+msgstr "在 nibwarden 锁定前有效。"
+
+msgid "Approve for all applications"
+msgstr "批准所有应用程序"
+
+msgid "All items"
+msgstr "所有项目"
+
+msgid "Favorites"
+msgstr "收藏"
+
+msgid "Logins"
+msgstr "登录信息"
+
+msgid "Cards"
+msgstr "支付卡"
+
+msgid "Identities"
+msgstr "身份"
+
+msgid "Secure notes"
+msgstr "安全笔记"
+
+msgid "SSH keys"
+msgstr "SSH 密钥"
+
+msgid "FOLDERS"
+msgstr "文件夹"
+
+msgid "Minimize"
+msgstr "最小化"
+
+msgid "Maximize"
+msgstr "最大化"
+
+msgid "Lock"
+msgstr "锁定"
+
+msgid "Sync now"
+msgstr "立即同步"
+
+msgid "No items"
+msgstr "没有项目"
+
+msgid "Select an item to see its details"
+msgstr "选择一个项目以查看详细信息"
+
+msgid "Open website"
+msgstr "打开网站"
+
+msgid "Hidden"
+msgstr "已隐藏"
+
+msgid "Edit item"
+msgstr "编辑项目"
+
+msgid "Saving…"
+msgstr "保存中…"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Leave empty to generate a new Ed25519 key, or paste a private key"
+msgstr "留空会生成新的 Ed25519 密钥，或粘贴私钥"
+
+msgid "Generate password"
+msgstr "生成密码"
+
+msgid "Websites"
+msgstr "网站"
+
+msgid "Remove"
+msgstr "移除"
+
+msgid "Add website"
+msgstr "添加网站"
+
+msgid "Options"
+msgstr "选项"
+
+msgid "Folder"
+msgstr "文件夹"
+
+msgid "No folder"
+msgstr "无文件夹"
+
+msgid "Favorite"
+msgstr "收藏"
+
+msgid "Ask for the master password again"
+msgstr "使用前再次输入主密码"
+
+msgid "Custom fields"
+msgstr "自定义字段"
+
+msgid "Field name"
+msgstr "字段名称"
+
+msgid "Value"
+msgstr "值"
+
+msgid "Text"
+msgstr "文本"
+
+msgid "Checkbox"
+msgstr "复选框"
+
+msgid "Trash"
+msgstr "回收站"
+
+msgid "New item"
+msgstr "新建项目"
+
+msgid "Delete \"{0}\" permanently?"
+msgstr "要永久删除“{0}”吗？"
+
+msgid "It is removed from your vault on every device. This cannot be undone."
+msgstr "它会从你所有设备上的密码库中移除，且无法恢复。"
+
+msgid "Delete permanently"
+msgstr "永久删除"
+
+msgid "Authenticator key (TOTP)"
+msgstr "验证器密钥（TOTP）"
+
+msgid "Cardholder name"
+msgstr "持卡人姓名"
+
+msgid "Brand"
+msgstr "品牌"
+
+msgid "Number"
+msgstr "卡号"
+
+msgid "Expiration month"
+msgstr "过期月份"
+
+msgid "Expiration year"
+msgstr "过期年份"
+
+msgid "Security code"
+msgstr "安全码"
+
+msgid "Title"
+msgstr "称谓"
+
+msgid "First name"
+msgstr "名"
+
+msgid "Middle name"
+msgstr "中间名"
+
+msgid "Last name"
+msgstr "姓"
+
+msgid "Company"
+msgstr "公司"
+
+msgid "Email"
+msgstr "电子邮件"
+
+msgid "Phone"
+msgstr "电话"
+
+msgid "Social security number"
+msgstr "身份证号"
+
+msgid "Passport number"
+msgstr "护照号码"
+
+msgid "License number"
+msgstr "驾照号码"
+
+msgid "Address 1"
+msgstr "地址 1"
+
+msgid "Address 2"
+msgstr "地址 2"
+
+msgid "Address 3"
+msgstr "地址 3"
+
+msgid "City / Town"
+msgstr "城市／城镇"
+
+msgid "State / Province"
+msgstr "州／省"
+
+msgid "Zip / Postal code"
+msgstr "邮政编码"
+
+msgid "Country"
+msgstr "国家"
+
+msgid "Private key"
+msgstr "私钥"
+
+msgid "Public key"
+msgstr "公钥"
+
+msgid "Fingerprint"
+msgstr "指纹"
+
+msgid "New login"
+msgstr "新建登录"
+
+msgid "New secure note"
+msgstr "新建安全笔记"
+
+msgid "New card"
+msgstr "新建支付卡"
+
+msgid "New identity"
+msgstr "新建身份"
+
+msgid "New SSH key"
+msgstr "新建 SSH 密钥"
+
+msgid "Login"
+msgstr "登录"
+
+msgid "Secure note"
+msgstr "安全笔记"
+
+msgid "Card"
+msgstr "支付卡"
+
+msgid "Identity"
+msgstr "身份"
+
+msgid "SSH key"
+msgstr "SSH 密钥"
+
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Remove from favorites"
+msgstr "取消收藏"
+
+msgid "Add to favorites"
+msgstr "收藏"
+
+msgid "Move to trash"
+msgstr "移到回收站"
+
+msgid "Restore"
+msgstr "恢复"
+
+msgid "In the trash"
+msgstr "在回收站中"
+
+msgid "wants to add \"{0}\" to your vault"
+msgstr "想要将“{0}”添加到你的密码库"
+
+msgid "wants to change whether \"{0}\" is a favourite"
+msgstr "想要更改“{0}”的收藏状态"
+
+msgid "wants to move \"{0}\" to the trash"
+msgstr "想要将“{0}”移到回收站"
+
+msgid "wants to restore \"{0}\" from the trash"
+msgstr "想要从回收站恢复“{0}”"
+
+msgid "wants to delete \"{0}\" permanently"
+msgstr "想要永久删除“{0}”"
+
+msgid "wants to change \"{0}\""
+msgstr "想要更改“{0}”"
+
+msgid "wants to read everything in \"{0}\""
+msgstr "想要读取“{0}”的全部内容"
+
+msgid "Scan QR code"
+msgstr "扫描二维码"
+
+msgid "Scan the screen"
+msgstr "扫描屏幕画面"
+
+msgid "Choose an image…"
+msgstr "选择图片…"
+
+msgid "No authenticator QR code found."
+msgstr "找不到验证器的二维码。"
+
+msgid "This file is not an SSH private key."
+msgstr "这个文件不是 SSH 私钥。"
+
+msgid "The file could not be read."
+msgstr "无法读取这个文件。"
+
+msgid "Could not take a screenshot."
+msgstr "无法截取屏幕画面。"
+
+msgid "Import from a file"
+msgstr "从文件导入"
+
+msgid "Password generator"
+msgstr "密码生成器"
+
+msgid "Generated password"
+msgstr "生成的密码"
+
+msgid "Generate again"
+msgstr "重新生成"
+
+msgid "Passphrase"
+msgstr "密码短语"
+
+msgid "Length"
+msgstr "长度"
+
+msgid "Avoid ambiguous characters"
+msgstr "避免容易混淆的字符"
+
+msgid "Number of words"
+msgstr "单词数量"
+
+msgid "Word separator"
+msgstr "单词分隔符"
+
+msgid "Capitalize"
+msgstr "首字母大写"
+
+msgid "Include number"
+msgstr "包含数字"
+
+msgid "Choose at least one kind of character."
+msgstr "请至少选择一种字符。"
+
+msgid "Use passphrase"
+msgstr "使用此密码短语"
+
+msgid "Use password"
+msgstr "使用此密码"
+
+msgid "Login credentials"
+msgstr "登录凭据"
+
+msgid "Card details"
+msgstr "支付卡信息"
+
+msgid "Personal details"
+msgstr "个人信息"
+
+msgid "Identification"
+msgstr "身份证明"
+
+msgid "Contact information"
+msgstr "联系信息"
+
+msgid "Additional options"
+msgstr "其他选项"
+
+msgid "Item details"
+msgstr "项目信息"
+
+msgid "Item history"
+msgstr "项目历史记录"
+
+msgid "Password history"
+msgstr "密码历史记录"
+
+msgid "Created"
+msgstr "创建时间"
+
+msgid "Last edited"
+msgstr "最后编辑"
+
+msgid "Password updated"
+msgstr "密码更新时间"
+
+msgid "Locked"
+msgstr "已锁定"
+
+msgid "Unlocked"
+msgstr "已解锁"
+
+msgid "Not signed in"
+msgstr "尚未登录"
+
+msgid "nibwarden is not running"
+msgstr "nibwarden 没有在运行"
+
+msgid "Open nibwarden"
+msgstr "打开 nibwarden"
+
+msgid "Unlock…"
+msgstr "解锁…"
+
+msgid "Settings…"
+msgstr "设置…"
+
+msgid "Quit"
+msgstr "退出"
+
+msgid "System tray"
+msgstr "系统托盘"
+
+msgid "Show in the system tray"
+msgstr "显示在系统托盘"
+
+msgid "Disabled"
+msgstr "已停用"
+
+msgid "Deletes on {0}"
+msgstr "{0} 删除"
+
+msgid "No Sends yet"
+msgstr "还没有 Send"
+
+msgid "Share text or a file through a link that deletes itself."
+msgstr "用一个会自动删除的链接分享文本或文件。"
+
+msgid "Disabled: the link does not open"
+msgstr "已停用：链接无法打开"
+
+msgid "File"
+msgstr "文件"
+
+msgid "Copy link"
+msgstr "复制链接"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Send"
+msgstr "Send"
+
+msgid "Reading the link…"
+msgstr "正在读取链接…"
+
+msgid "Text (hidden until the recipient shows it)"
+msgstr "文本（收件人点击显示前先隐藏）"
+
+msgid "Details"
+msgstr "详细信息"
+
+msgid "Deletes on"
+msgstr "删除时间"
+
+msgid "Stops opening on"
+msgstr "失效时间"
+
+msgid "Opened"
+msgstr "已打开"
+
+msgid "{0} of {1} times"
+msgstr "{0} / {1} 次"
+
+msgid "{0} times"
+msgstr "{0} 次"
+
+msgid "The recipient needs a password to open it"
+msgstr "收件人需要输入密码才能打开"
+
+msgid "Your email address"
+msgstr "你的电子邮件地址"
+
+msgid "Hidden from the recipient"
+msgstr "不让收件人看到"
+
+msgid "New file Send"
+msgstr "新建文件 Send"
+
+msgid "New text Send"
+msgstr "新建文本 Send"
+
+msgid "Create"
+msgstr "创建"
+
+msgid "Hide the text until the recipient shows it"
+msgstr "收件人点击显示前先隐藏文本"
+
+msgid "Choose a file…"
+msgstr "选择文件…"
+
+msgid "Choose another…"
+msgstr "改选其他文件…"
+
+msgid "At most 10 MB"
+msgstr "最大 10 MB"
+
+msgid "Delete after"
+msgstr "几天后删除"
+
+msgid "1 day"
+msgstr "1 天"
+
+msgid "2 days"
+msgstr "2 天"
+
+msgid "3 days"
+msgstr "3 天"
+
+msgid "7 days"
+msgstr "7 天"
+
+msgid "14 days"
+msgstr "14 天"
+
+msgid "30 days"
+msgstr "30 天"
+
+msgid "Maximum number of accesses (optional)"
+msgstr "最多打开次数（选填）"
+
+msgid "Password (optional)"
+msgstr "密码（选填）"
+
+msgid "Hide my email address from the recipient"
+msgstr "不让收件人看到我的电子邮件地址"
+
+msgid "Notes (only you see them)"
+msgstr "备注（只有你看得到）"
+
+msgid "New Send"
+msgstr "新建 Send"
+
+msgid "Select a Send to see its link"
+msgstr "选择一个 Send 查看链接"
+
+msgid "Delete the Send \"{0}\"?"
+msgstr "要删除 Send“{0}”吗？"
+
+msgid "Its link stops working for everyone. This cannot be undone."
+msgstr "链接会对所有人失效，且无法恢复。"
+
+msgid "Link copied"
+msgstr "已复制链接"
+
+msgid "wants to create the Send \"{0}\""
+msgstr "要创建 Send“{0}”"
+
+msgid "wants to delete the Send \"{0}\""
+msgstr "要删除 Send“{0}”"
+
+msgid "wants to read the Send \"{0}\" and its link"
+msgstr "要读取 Send“{0}”及其链接"
+
+msgid "wants to export your whole vault as an unencrypted CSV file"
+msgstr "想要把整个密码库导出为未加密的 CSV 文件"
+
+msgid "wants to export your whole vault as an unencrypted JSON file"
+msgstr "想要把整个密码库导出为未加密的 JSON 文件"
+
+msgid "wants to export your whole vault as a password-protected JSON file"
+msgstr "想要把整个密码库导出为有密码保护的 JSON 文件"
+
+msgid "wants to import {0} items from \"{1}\" into your vault"
+msgstr "想要把“{1}”中的 {0} 个项目导入你的密码库"
+
+msgid "wants to import the items in \"{0}\" into your vault"
+msgstr "想要把“{0}”中的项目导入你的密码库"
+
+msgid "Enter your master password."
+msgstr "请输入主密码。"
+
+msgid "Choose a password for the file."
+msgstr "请为文件设置密码。"
+
+msgid "The two file passwords differ."
+msgstr "两次输入的文件密码不一致。"
+
+msgid "Wrong password for this file."
+msgstr "文件密码错误。"
+
+msgid "The file is larger than 10 MB."
+msgstr "文件超过 10 MB。"
+
+msgid "Enter the password of the file."
+msgstr "请输入文件的密码。"
+
+msgid "Items exported: {0}. The file is {1}; keep it safe, and delete it once you no longer need it."
+msgstr "已导出 {0} 个项目，文件在 {1}。请妥善保管，不再需要时就删除。"
+
+msgid "Items added to your vault: {0}. New folders: {1}."
+msgstr "已向你的密码库添加 {0} 个项目，新建 {1} 个文件夹。"
+
+msgid "Import…"
+msgstr "导入…"
+
+msgid "Export…"
+msgstr "导出…"
+
+msgid "Export finished"
+msgstr "导出完成"
+
+msgid "Import finished"
+msgstr "导入完成"
+
+msgid "Done"
+msgstr "完成"
+
+msgid "Export your vault"
+msgstr "导出密码库"
+
+msgid "Your personal items and folders go into one file, in a format Bitwarden can import. Items in the trash are left out."
+msgstr "你的个人项目和文件夹会保存为一个 Bitwarden 也能导入的文件，回收站中的项目不包含在内。"
+
+msgid "Password-protected JSON"
+msgstr "有密码保护的 JSON"
+
+msgid "JSON"
+msgstr "JSON"
+
+msgid "CSV"
+msgstr "CSV"
+
+msgid "Only someone with the file password can read it. You need the password to import it again."
+msgstr "只有知道文件密码的人才能读取，以后导入也需要这个密码。"
+
+msgid "The file is not encrypted: anyone who can open it sees your passwords. CSV holds only logins and secure notes."
+msgstr "文件没有加密，任何能打开它的人都能看到你的密码。CSV 只包含登录信息和安全笔记。"
+
+msgid "The file is not encrypted: anyone who can open it sees your passwords."
+msgstr "文件没有加密，任何能打开它的人都能看到你的密码。"
+
+msgid "File password"
+msgstr "文件密码"
+
+msgid "File password again"
+msgstr "再次输入文件密码"
+
+msgid "Exporting…"
+msgstr "正在导出…"
+
+msgid "Import into your vault"
+msgstr "导入到密码库"
+
+msgid "From a Bitwarden JSON or CSV export (also password-protected) or a KeePass database (.kdbx). The items are added; nothing already in your vault changes."
+msgstr "可以导入 Bitwarden 导出的 JSON 或 CSV（包括有密码保护的）或 KeePass 数据库（.kdbx）。项目会另外添加，密码库中原有的内容不会改变。"
+
+msgid "Password of the file"
+msgstr "文件密码"
+
+msgid "Importing…"
+msgstr "正在导入…"
+
+msgid "Import"
+msgstr "导入"
+
+msgid "Import and export"
+msgstr "导入和导出"
+
+# Signing in and creating an account (account.slint).
+
+msgid "Enter your email address."
+msgstr "请输入电子邮件地址。"
+
+msgid "Enter the address of your server."
+msgstr "请输入服务器的网址。"
+
+msgid "Enter the 6-digit code."
+msgstr "请输入 6 位验证码。"
+
+msgid "Paste the link from the email."
+msgstr "请粘贴邮件里的链接。"
+
+msgid "That is not the link from the email."
+msgstr "这不是邮件里的链接。"
+
+msgid "The master password needs at least 12 characters."
+msgstr "主密码至少要 12 个字符。"
+
+msgid "The two passwords differ."
+msgstr "两次输入的密码不一致。"
+
+msgid "The hint must not be the password itself."
+msgstr "提示不能是密码本身。"
+
+msgid "Server"
+msgstr "服务器"
+
+msgid "Self-hosted"
+msgstr "自托管"
+
+msgid "Sign in to nibwarden"
+msgstr "登录 nibwarden"
+
+msgid "Sign in"
+msgstr "登录"
+
+msgid "No account yet?"
+msgstr "还没有账户？"
+
+msgid "Create account"
+msgstr "创建账户"
+
+msgid "Verify new device"
+msgstr "验证新设备"
+
+msgid "Two-step login"
+msgstr "两步登录"
+
+msgid "Enter the code sent to {0}."
+msgstr "请输入发送到 {0} 的验证码。"
+
+msgid "Have a code sent to {0}."
+msgstr "把验证码发送到 {0}。"
+
+msgid "Enter the code from your authenticator app."
+msgstr "请输入验证器应用显示的验证码。"
+
+msgid "Authenticator app"
+msgstr "验证器应用"
+
+msgid "Send again"
+msgstr "重新发送"
+
+msgid "Send code"
+msgstr "发送验证码"
+
+msgid "Continue"
+msgstr "继续"
+
+msgid "Name (optional)"
+msgstr "名称（可选）"
+
+msgid "Already have an account?"
+msgstr "已经有账户了？"
+
+msgid "Check your email"
+msgstr "请查看电子邮件"
+
+msgid "Paste the link sent to {0}."
+msgstr "粘贴发送到 {0} 的链接。"
+
+msgid "Link from the email"
+msgstr "邮件里的链接"
+
+msgid "Choose a master password"
+msgstr "设置主密码"
+
+msgid "A forgotten master password cannot be recovered."
+msgstr "忘记主密码将无法找回。"
+
+msgid "Master password again"
+msgstr "再输入一次主密码"
+
+msgid "Hint (optional)"
+msgstr "提示（可选）"
+
+msgid "Not signed in. Sign in in the nibwarden window."
+msgstr "尚未登录。请在 nibwarden 主窗口登录。"
+
+msgid "12 hours"
+msgstr "12 小时"
+
+msgid "4 hours"
+msgstr "4 小时"
+
+msgid "An approval applies to"
+msgstr "批准的范围"
+
+msgid "For example over SSH."
+msgstr "例如通过 SSH 连接时。"
+
+msgid "Remember an approval"
+msgstr "批准的有效时间"
+
+msgid "Sign out"
+msgstr "退出登录"
+
+msgid "Until locked"
+msgstr "直到锁定"
+
+msgid "wants to unlock the Bitwarden browser extension with your vault's key"
+msgstr "想要用你的密码库密钥解锁 Bitwarden 浏览器扩展"
+
+msgid "wants to confirm it is you, so the Bitwarden browser extension can be unlocked with nibwarden"
+msgstr "想要确认是你本人，以便之后用 nibwarden 解锁 Bitwarden 浏览器扩展"
+
+msgid "Browser"
+msgstr "浏览器"
+
+msgid "Unlock the Bitwarden browser extension with nibwarden"
+msgstr "用 nibwarden 解锁 Bitwarden 浏览器扩展"
+
+msgid "{0} starts Bitwarden's desktop app instead."
+msgstr "{0} 目前使用的是 Bitwarden 桌面版。"

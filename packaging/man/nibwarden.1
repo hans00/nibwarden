@@ -1,0 +1,218 @@
+.TH NIBWARDEN 1 2026-11-06 "nibwarden" "User Commands"
+.SH NAME
+nibwarden \- command-line client for the nibwarden vault daemon
+.SH SYNOPSIS
+.B nibwarden
+.RB [ \-\-socket
+.IR path ]
+.I command
+.RI [ options ]
+.SH DESCRIPTION
+.B nibwarden
+talks to
+.BR nibwardend (1),
+which keeps a Bitwarden or Vaultwarden vault unlocked for the desktop session.
+The daemon is started on demand through the systemd user unit
+.BR nibwardend.service .
+.PP
+Commands that read secrets need the vault unlocked.
+When it is locked,
+.B nibwarden
+asks for the master password on the terminal, or the daemon shows its unlock window.
+Programs other than nibwarden's own windows may have to be approved in a window first
+(see
+.B [approval]
+in
+.BR FILES ).
+.SH COMMANDS
+.SS Account
+.TP
+.B status \fR[\fB\-\-json\fR]
+Show the account and whether the vault is locked.
+.TP
+.B login \-\-email \fIaddress\fR [\fB\-\-server\fR \fIserver\fR] [\fB\-\-method authenticator\fR|\fBemail\fR] [\fB\-\-password\-stdin\fR]
+Log in.
+.I server
+is
+.BR bitwarden.com " (the default), " bitwarden.eu ,
+or the https URL of a self-hosted server.
+Two-step login asks for the code on the terminal.
+.TP
+.B logout
+Log out, and delete the local session and the encrypted vault cache.
+.TP
+.B unlock \fR[\fB\-\-password\-stdin\fR | \fB\-\-gui\fR]
+Unlock with the master password, read from the terminal, from stdin, or in the unlock window.
+.TP
+.B lock
+Lock now.
+.TP
+.B sync \fR[\fB\-\-force\fR]
+Sync with the server.
+The daemon also syncs every five minutes and as soon as the server reports a change.
+.SS Reading the vault
+.TP
+.B list \fR[\fIsearch\fR] [\fB\-\-folder\fR \fIname\fR] [\fB\-\-json\fR]
+List items: names, kinds, folders and URIs, never secrets.
+.TP
+.B get \fIitem\fR [\fB\-f\fR|\fB\-\-field\fR \fIfield\fR] [\fB\-\-folder\fR \fIname\fR] [\fB\-n\fR|\fB\-\-no\-newline\fR]
+Print one field of an item (by name or id).
+.I field
+is
+.BR password " (the default), " username ", " totp ", " notes ", " uri ,
+a card or SSH key field, or the name of a custom field.
+.TP
+.B read \fIreference\fR [\fB\-n\fR|\fB\-\-no\-newline\fR]
+Print the value of a reference
+.BR nw:// [\fIfolder\fB/\fR]\fIitem\fB/\fIfield .
+.TP
+.B totp \fIitem\fR [\fB\-\-folder\fR \fIname\fR]
+Print the item's current one-time code.
+.TP
+.B run \fR[\fB\-\-env\-file\fR \fIfile\fR]... \fB\-\-\fR \fIcommand\fR...
+Run
+.I command
+with every
+.B nw://
+reference in its environment replaced by the value.
+.I file
+holds
+.IB KEY = VALUE
+lines added to the environment; later files win.
+.TP
+.B generate \fR[\fIoptions\fR]
+Print a new password: \fB\-l\fR|\fB\-\-length\fR \fIn\fR (20), \fB\-\-special\fR,
+\fB\-\-no\-uppercase\fR, \fB\-\-no\-lowercase\fR, \fB\-\-no\-numbers\fR,
+\fB\-\-avoid\-ambiguous\fR.
+With \fB\-\-passphrase\fR, a passphrase: \fB\-\-words\fR \fIn\fR (5),
+\fB\-\-separator\fR \fIs\fR (\-), \fB\-\-capitalize\fR, \fB\-\-include\-number\fR.
+.SS Windows
+.TP
+.B open
+Open the main window.
+.TP
+.B quick \fR[\fB\-\-install\-shortcut\fR [\fB\-\-binding\fR \fIaccelerator\fR]]
+Open quick access: search the vault and copy a field.
+With \fB\-\-install\-shortcut\fR, add a GNOME keyboard shortcut that opens it instead
+(default \fB<Control><Shift>space\fR).
+.TP
+.B settings
+Open the settings window.
+.SS SSH and git
+.TP
+.B ssh list \fR[\fB\-\-json\fR]
+List the SSH keys the agent offers.
+.TP
+.B ssh authorize \fR[\fB\-\-password\-stdin\fR]
+Allow SSH signatures from this terminal session with the master password,
+for when no approval window can be shown (for example over SSH).
+Lasts until the vault locks.
+.TP
+.B ssh git\-setup \fR[\fB\-\-key\fR \fIname\fR] [\fB\-\-global\fR]
+Make git sign commits with an SSH key from the vault, through
+.BR nibwarden\-ssh\-sign (1).
+.SS Browser extension
+.TP
+.B browser enable \fR[\fB\-\-replace\fR]
+Register
+.BR nibwarden\-browser\-host (1)
+with the installed browsers (Firefox, Chrome, Chromium, Edge, Vivaldi, Brave), so the
+official Bitwarden extension's "Unlock with biometrics" asks in nibwarden's window
+instead of Bitwarden's desktop app.
+A browser where Bitwarden's desktop app is registered is left alone unless
+\fB\-\-replace\fR.
+.TP
+.B browser disable
+Remove nibwarden's registration.
+.TP
+.B browser status
+Show what each installed browser starts for the extension.
+.SS Bitwarden Send
+.TP
+.B send list \fR[\fB\-\-json\fR]
+List your Sends, never their content or link.
+.TP
+.B send create \fIname\fR [\fIoptions\fR]
+Create a Send of the text on stdin, or of \fB\-\-file\fR \fIpath\fR (at most 10 MiB),
+and print its link.
+Options: \fB\-\-days\fR \fIn\fR (1 to 31, default 7), \fB\-\-max\-access\fR \fIn\fR,
+\fB\-\-password\fR (asked on the terminal), \fB\-\-hidden\fR, \fB\-\-hide\-email\fR,
+\fB\-\-notes\fR \fItext\fR.
+.TP
+.B send get \fIsend\fR [\fB\-\-text\fR]
+Print a Send's link, or its text.
+.TP
+.B send delete \fIsend\fR
+Delete a Send; its link stops working.
+.SS Export and import
+.TP
+.B export \-o\fR|\fB\-\-output \fIfile\fR [\fB\-\-format encrypted\-json\fR|\fBjson\fR|\fBcsv\fR] [\fB\-\-force\fR] [\fB\-\-password\-stdin\fR]
+Export your personal items and folders in a format Bitwarden imports.
+Always asks for the master password again; \fBencrypted\-json\fR (the default) also asks
+for a password for the file.
+\fBjson\fR and \fBcsv\fR are not encrypted, and CSV holds only logins and secure notes.
+The file is created readable only by you; an existing file is replaced only with \fB\-\-force\fR.
+.TP
+.B import \fIfile\fR [\fB\-\-password\-stdin\fR]
+Add the items of a Bitwarden JSON or CSV export (also password-protected)
+or of a KeePass database (.kdbx) to the vault.
+The format is detected; the file's password is asked for when it has one.
+.SH OPTIONS
+.TP
+.BI \-\-socket " path"
+The daemon's control socket.
+.TP
+.B \-\-password\-stdin
+Read passwords from lines of stdin instead of the terminal.
+.SH ENVIRONMENT
+.TP
+.B NIBWARDEN_SOCKET
+Same as \fB\-\-socket\fR.
+Default:
+.IR $XDG_RUNTIME_DIR/nibwarden/daemon.sock .
+.SH FILES
+.TP
+.I ~/.config/nibwarden/config.toml
+Settings, also changed in the settings window.
+Every key is optional:
+.RS
+.PP
+.nf
+[appearance]
+theme = "system"          # "system", "light" or "dark"
+language = "system"       # or a tag such as "zh-TW", "zh-CN", "en"
+
+[lock]
+idle_minutes = 15         # lock after this long unused; 0 = never
+on_screen_lock = true
+on_sleep = true
+
+[approval]                # SSH signatures are always confirmed
+remember = "application"  # "request", "application" or "terminal"
+remember_hours = 0        # how long an approval lasts; 0 = until locked
+read_secret = "ask"       # secrets read by programs: "ask" or "allow"
+without_window = "allow"  # when no window can be shown (SSH)
+
+[clipboard]
+clear = true
+clear_after_seconds = 90
+
+[tray]
+enabled = false           # system tray icon, started at login
+.fi
+.RE
+.SH EXIT STATUS
+0 on success; 3 when the vault is locked (and could not be unlocked), 4 when not logged in;
+2 on a usage error; 1 on any other error.
+.SH EXAMPLES
+.nf
+nibwarden login \-\-email me@example.com
+nibwarden get GitHub \-f totp
+DB_PASSWORD=nw://Work/Database/password nibwarden run \-\- ./server
+nibwarden export \-o vault.json
+.fi
+.SH SEE ALSO
+.BR nibwardend (1),
+.BR nibwarden\-gui (1),
+.BR nibwarden\-ssh\-sign (1),
+.BR nibwarden\-browser\-host (1)

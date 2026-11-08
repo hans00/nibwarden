@@ -1,0 +1,532 @@
+// Sends in the main window (phase2.md P2-M12): text or a file shared through a link.
+// The list, the chosen Send and the form for a new one are filled from `Sends`; the Rust
+// side (sends.rs) talks to the daemon.
+import { Theme } from "theme.slint";
+import { Button, Checkbox, Icon, IconButton, Icons, ScrollBar, Segmented } from "components.slint";
+import { FieldKind, FieldLabel, FieldRow } from "vault.slint";
+import { FormField, Section } from "editor.slint";
+
+// One Send in the list.
+export struct SendRow {
+    name: string,
+    file: bool,
+    // When the server deletes it (local date).
+    deletion: string,
+    disabled: bool,
+}
+
+// The chosen Send. `link` and `text` stay empty until they are read.
+export struct SendDetail {
+    name: string,
+    file: bool,
+    file-name: string,
+    file-size: string,
+    text: string,
+    hidden: bool,
+    link: string,
+    deletion: string,
+    expiration: string,
+    accesses: int,
+    // 0: no limit.
+    max-accesses: int,
+    protected: bool,
+    hide-email: bool,
+    disabled: bool,
+    notes: string,
+}
+
+export global Sends {
+    // The Send view is showing instead of the items.
+    in-out property <bool> shown;
+    in property <[SendRow]> rows;
+    in-out property <int> selected: -1;
+    in property <bool> loading;
+    // The chosen Send in the right column.
+    in property <bool> open;
+    in property <SendDetail> detail;
+    // A problem with the last action, under the list.
+    in property <string> message;
+
+    // The form for a new Send.
+    in-out property <bool> editing;
+    in-out property <bool> form-file;
+    in-out property <string> form-name;
+    in-out property <string> form-text;
+    in-out property <bool> form-hidden;
+    // The chosen file's name; the file itself stays on the Rust side.
+    in property <string> form-file-name;
+    // Index into the deletion choices (1, 2, 3, 7, 14, 30 days).
+    in-out property <int> form-days: 3;
+    in-out property <string> form-max-accesses;
+    in-out property <string> form-password;
+    in-out property <bool> form-hide-email;
+    in-out property <string> form-notes;
+    in property <string> form-error;
+    in property <bool> saving;
+
+    // Deleting asks first.
+    in-out property <bool> confirm-delete;
+
+    callback show();
+    callback choose(int);
+    callback new-send(bool);
+    callback choose-file();
+    callback save();
+    callback cancel();
+    callback copy-link();
+    callback open-link();
+    callback copy-text();
+    callback delete();
+    // The vault locked: drop what was read.
+    callback forget();
+}
+
+component SendListRow inherits Rectangle {
+    in property <SendRow> send;
+    in property <bool> selected;
+    callback clicked();
+    height: 56px;
+    border-radius: Theme.radius-sm + 2px;
+    background: root.selected ? Theme.accent-soft : touch.has-hover ? Theme.surface-muted : transparent;
+    accessible-role: list-item;
+    property <string> detail: root.send.disabled ? @tr("Disabled") : @tr("Deletes on {0}", root.send.deletion);
+    accessible-label: root.send.name + " " + root.detail;
+    accessible-item-selected: root.selected;
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 12px;
+        Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: 34px;
+            height: 34px;
+            border-radius: Theme.radius-sm;
+            background: Theme.surface-muted;
+            Icon {
+                width: 16px;
+                height: 16px;
+                commands: root.send.file ? Icons.file : Icons.note;
+                color: Theme.text-muted;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.send.name;
+                color: root.send.disabled ? Theme.text-muted : Theme.text;
+                font-size: Theme.font-body;
+                font-weight: 600;
+                overflow: elide;
+            }
+            Text {
+                text: root.detail;
+                color: Theme.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+export component SendList inherits Rectangle {
+    property <length> row-height: 58px;
+    flick := Flickable {
+        content-height: Sends.rows.length * root.row-height;
+        for send[index] in Sends.rows: SendListRow {
+            x: 6px;
+            y: index * root.row-height;
+            width: parent.width - 12px;
+            send: send;
+            selected: index == Sends.selected;
+            clicked => {
+                Sends.choose(index);
+            }
+        }
+        if Sends.rows.length == 0 && !Sends.loading: VerticalLayout {
+            width: parent.width;
+            padding: 24px;
+            spacing: 6px;
+            Text {
+                text: @tr("No Sends yet");
+                horizontal-alignment: center;
+                color: Theme.text-muted;
+                font-size: Theme.font-body;
+            }
+            Text {
+                text: @tr("Share text or a file through a link that deletes itself.");
+                horizontal-alignment: center;
+                color: Theme.text-faint;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+            }
+        }
+    }
+    ScrollBar {
+        x: parent.width - self.width;
+        height: parent.height;
+        content: flick.content-height;
+        view: flick.height;
+        offset <=> flick.content-y;
+    }
+}
+
+// A card of rows with a title above, like an item's.
+component Card inherits VerticalLayout {
+    in property <string> title;
+    spacing: 6px;
+    Text {
+        text: root.title;
+        color: Theme.text-muted;
+        font-size: Theme.font-small;
+        font-weight: 600;
+    }
+    Rectangle {
+        border-radius: Theme.radius;
+        background: Theme.surface;
+        border-width: 1px;
+        border-color: Theme.border;
+        clip: true;
+        VerticalLayout {
+            @children
+        }
+    }
+}
+
+component Divider inherits Rectangle {
+    height: 1px;
+    background: Theme.border;
+}
+
+component Info inherits FieldRow {
+    in property <string> label;
+    in property <string> value;
+    field: {
+        standard: FieldLabel.custom,
+        label: root.label,
+        value: root.value,
+        kind: FieldKind.info,
+        revealed: true,
+    };
+}
+
+export component SendPane inherits VerticalLayout {
+    spacing: 12px;
+    HorizontalLayout {
+        spacing: 10px;
+        cross-axis-alignment: center;
+        Rectangle {
+            width: 40px;
+            height: 40px;
+            border-radius: Theme.radius;
+            background: Theme.accent-soft;
+            Icon {
+                width: 20px;
+                height: 20px;
+                commands: Icons.send;
+                color: Theme.accent;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: Sends.detail.name;
+                color: Theme.text;
+                font-size: Theme.font-title - 1px;
+                font-weight: 700;
+                overflow: elide;
+            }
+            Text {
+                text: Sends.detail.disabled ? @tr("Disabled: the link does not open")
+                    : Sends.detail.file ? @tr("File") : @tr("Text");
+                color: Sends.detail.disabled ? Theme.danger : Theme.text-muted;
+                font-size: Theme.font-small;
+            }
+        }
+        HorizontalLayout {
+            horizontal-stretch: 0;
+            cross-axis-alignment: center;
+            spacing: 4px;
+            IconButton {
+                icon: Icons.link;
+                label: @tr("Copy link");
+                tint: Theme.accent;
+                size: 34px;
+                clicked => {
+                    Sends.copy-link();
+                }
+            }
+            IconButton {
+                icon: Icons.trash;
+                label: @tr("Delete");
+                size: 34px;
+                clicked => {
+                    Sends.confirm-delete = true;
+                }
+            }
+        }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        scroll := Flickable {
+            width: 100%;
+            height: 100%;
+            content-height: cards.preferred-height;
+            cards := VerticalLayout {
+                width: parent.width;
+                spacing: 18px;
+                padding-bottom: 12px;
+                Card {
+                    title: @tr("Send");
+                    FieldRow {
+                        field: {
+                            standard: FieldLabel.website,
+                            value: Sends.detail.link == "" ? @tr("Reading the link…") : Sends.detail.link,
+                            kind: FieldKind.website,
+                            revealed: true,
+                        };
+                        copy => {
+                            Sends.copy-link();
+                        }
+                        open => {
+                            Sends.open-link();
+                        }
+                    }
+                    Divider { }
+                    if !Sends.detail.file: FieldRow {
+                        field: {
+                            standard: FieldLabel.custom,
+                            label: Sends.detail.hidden ? @tr("Text (hidden until the recipient shows it)") : @tr("Text"),
+                            value: Sends.detail.text,
+                            kind: FieldKind.multiline,
+                            revealed: true,
+                        };
+                        copy => {
+                            Sends.copy-text();
+                        }
+                    }
+                    if Sends.detail.file: Info {
+                        label: @tr("File");
+                        value: Sends.detail.file-size == "" ? Sends.detail.file-name
+                            : Sends.detail.file-name + " (" + Sends.detail.file-size + ")";
+                    }
+                }
+                Card {
+                    title: @tr("Details");
+                    Info {
+                        label: @tr("Deletes on");
+                        value: Sends.detail.deletion;
+                    }
+                    if Sends.detail.expiration != "": Divider { }
+                    if Sends.detail.expiration != "": Info {
+                        label: @tr("Stops opening on");
+                        value: Sends.detail.expiration;
+                    }
+                    Divider { }
+                    Info {
+                        label: @tr("Opened");
+                        value: Sends.detail.max-accesses > 0
+                            ? @tr("{0} of {1} times", Sends.detail.accesses, Sends.detail.max-accesses)
+                            : @tr("{0} times", Sends.detail.accesses);
+                    }
+                    if Sends.detail.protected: Divider { }
+                    if Sends.detail.protected: Info {
+                        label: @tr("Password");
+                        value: @tr("The recipient needs a password to open it");
+                    }
+                    if Sends.detail.hide-email: Divider { }
+                    if Sends.detail.hide-email: Info {
+                        label: @tr("Your email address");
+                        value: @tr("Hidden from the recipient");
+                    }
+                }
+                if Sends.detail.notes != "": Card {
+                    title: @tr("Notes");
+                    FieldRow {
+                        field: {
+                            standard: FieldLabel.notes,
+                            value: Sends.detail.notes,
+                            kind: FieldKind.multiline,
+                            revealed: true,
+                        };
+                    }
+                }
+            }
+        }
+        ScrollBar {
+            x: parent.width - self.width;
+            height: parent.height;
+            content: scroll.content-height;
+            view: scroll.height;
+            offset <=> scroll.content-y;
+        }
+    }
+}
+
+export component SendEditor inherits VerticalLayout {
+    spacing: 12px;
+    HorizontalLayout {
+        spacing: 10px;
+        cross-axis-alignment: center;
+        Text {
+            horizontal-stretch: 1;
+            text: Sends.form-file ? @tr("New file Send") : @tr("New text Send");
+            color: Theme.text;
+            font-size: Theme.font-title - 1px;
+            font-weight: 700;
+            overflow: elide;
+        }
+        Button {
+            text: @tr("Cancel");
+            clicked => {
+                Sends.cancel();
+            }
+        }
+        Button {
+            text: Sends.saving ? @tr("Saving…") : @tr("Create");
+            primary: true;
+            enabled: !Sends.saving;
+            clicked => {
+                Sends.save();
+            }
+        }
+    }
+    if Sends.form-error != "": HorizontalLayout {
+        spacing: 8px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 15px;
+            height: 15px;
+            commands: Icons.alert;
+            color: Theme.danger;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: Sends.form-error;
+            color: Theme.danger;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+        }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        scroll := Flickable {
+            width: 100%;
+            height: 100%;
+            content-height: form.preferred-height;
+            form := VerticalLayout {
+                width: parent.width;
+                spacing: 14px;
+                padding-bottom: 24px;
+                Section {
+                    FormField {
+                        label: @tr("Name");
+                        value: Sends.form-name;
+                        edited(text) => {
+                            Sends.form-name = text;
+                        }
+                        init => {
+                            self.focus-input();
+                        }
+                    }
+                    if !Sends.form-file: FormField {
+                        label: @tr("Text");
+                        value: Sends.form-text;
+                        multiline: true;
+                        edited(text) => {
+                            Sends.form-text = text;
+                        }
+                    }
+                    if !Sends.form-file: Checkbox {
+                        text: @tr("Hide the text until the recipient shows it");
+                        checked <=> Sends.form-hidden;
+                    }
+                    if Sends.form-file: VerticalLayout {
+                        spacing: 5px;
+                        Text {
+                            text: @tr("File");
+                            color: Theme.text-muted;
+                            font-size: Theme.font-small;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            cross-axis-alignment: center;
+                            Button {
+                                text: Sends.form-file-name == "" ? @tr("Choose a file…") : @tr("Choose another…");
+                                clicked => {
+                                    Sends.choose-file();
+                                }
+                            }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: Sends.form-file-name == "" ? @tr("At most 10 MB") : Sends.form-file-name;
+                                color: Sends.form-file-name == "" ? Theme.text-faint : Theme.text;
+                                font-size: Theme.font-body;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+                Section {
+                    title: @tr("Options");
+                    VerticalLayout {
+                        spacing: 5px;
+                        Text {
+                            text: @tr("Delete after");
+                            color: Theme.text-muted;
+                            font-size: Theme.font-small;
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            Segmented {
+                                options: [@tr("1 day"), @tr("2 days"), @tr("3 days"), @tr("7 days"), @tr("14 days"), @tr("30 days")];
+                                selected <=> Sends.form-days;
+                            }
+                        }
+                    }
+                    FormField {
+                        label: @tr("Maximum number of accesses (optional)");
+                        value: Sends.form-max-accesses;
+                        edited(text) => {
+                            Sends.form-max-accesses = text;
+                        }
+                    }
+                    FormField {
+                        label: @tr("Password (optional)");
+                        value: Sends.form-password;
+                        secret: true;
+                        edited(text) => {
+                            Sends.form-password = text;
+                        }
+                    }
+                    Checkbox {
+                        text: @tr("Hide my email address from the recipient");
+                        checked <=> Sends.form-hide-email;
+                    }
+                    FormField {
+                        label: @tr("Notes (only you see them)");
+                        value: Sends.form-notes;
+                        multiline: true;
+                        edited(text) => {
+                            Sends.form-notes = text;
+                        }
+                    }
+                }
+            }
+        }
+        ScrollBar {
+            x: parent.width - self.width;
+            height: parent.height;
+            content: scroll.content-height;
+            view: scroll.height;
+            offset <=> scroll.content-y;
+        }
+    }
+}

@@ -1,0 +1,18 @@
+[Unit]
+Description=nibwarden vault daemon
+# Socket: $XDG_RUNTIME_DIR/nibwarden/daemon.sock. `nibwarden` starts this unit on demand.
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/nibwardend
+Restart=on-failure
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=default.target

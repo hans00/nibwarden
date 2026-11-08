@@ -1,0 +1,575 @@
+// Creating and editing an item (phase2.md P2-M10), in the main window's right column.
+// The form is filled from `Vault.edit-*`; what the user types goes back through the
+// `Vault.edit-*` callbacks, so the Rust side always has the current content.
+import { Theme } from "theme.slint";
+import { Button, Checkbox, Icon, IconButton, Icons, ScrollBar } from "components.slint";
+import { EditProblem, Labels, Vault } from "vault.slint";
+
+// A labelled text box. `value` fills it (when the form opens, or a password is
+// generated); typing reports through `edited` rather than a binding that would break.
+export component FormField inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <string> placeholder;
+    in property <bool> secret;
+    in property <bool> multiline;
+    in property <bool> readonly;
+    callback edited(string);
+    // Enter in a single-line field.
+    callback accepted();
+    property <bool> revealed;
+    public function focus-input() {
+        input.focus();
+    }
+    // A hidden multi-line secret (a private key) is not drawn as a block of dots.
+    property <bool> covered: root.secret && root.multiline && !root.revealed;
+    spacing: 5px;
+    init => {
+        input.text = root.value;
+    }
+    changed value => {
+        if (input.text != root.value) {
+            input.text = root.value;
+        }
+    }
+    if root.label != "": Text {
+        text: root.label;
+        color: Theme.text-muted;
+        font-size: Theme.font-small;
+    }
+    Rectangle {
+        height: root.multiline ? max(96px, input.preferred-height + 18px) : 38px;
+        border-radius: Theme.radius-sm + 1px;
+        background: root.readonly ? Theme.surface-muted : Theme.surface;
+        border-width: 1px;
+        border-color: input.has-focus ? Theme.accent : Theme.border-strong;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 4px;
+            spacing: 2px;
+            Rectangle {
+                horizontal-stretch: 1;
+                input := TextInput {
+                    y: root.multiline ? 9px : 0px;
+                    height: root.multiline ? parent.height - 18px : parent.height;
+                    visible: !root.covered;
+                    vertical-alignment: root.multiline ? top : center;
+                    single-line: !root.multiline;
+                    wrap: root.multiline ? word-wrap : no-wrap;
+                    read-only: root.readonly;
+                    input-type: root.secret && !root.revealed ? InputType.password : InputType.text;
+                    color: Theme.text;
+                    font-size: Theme.font-body + 1px;
+                    selection-background-color: Theme.accent-soft;
+                    accessible-label: root.label;
+                    edited => {
+                        root.edited(self.text);
+                    }
+                    accepted => {
+                        root.accepted();
+                    }
+                }
+                if root.covered: Text {
+                    width: 100%;
+                    height: 100%;
+                    vertical-alignment: center;
+                    text: input.text == "" ? root.placeholder : @tr("Hidden");
+                    color: Theme.text-faint;
+                    font-size: Theme.font-body;
+                }
+                if !root.covered && input.text == "" && root.placeholder != "": Text {
+                    y: input.y;
+                    height: input.height;
+                    width: 100%;
+                    vertical-alignment: input.vertical-alignment;
+                    text: root.placeholder;
+                    color: Theme.text-faint;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                }
+            }
+            if root.secret: VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: start;
+                padding-top: 4px;
+                IconButton {
+                    icon: root.revealed ? Icons.eye-off : Icons.eye;
+                    label: root.revealed ? @tr("Hide") : @tr("Show");
+                    clicked => {
+                        root.revealed = !root.revealed;
+                    }
+                }
+            }
+            // Extra buttons, e.g. "generate"; takes no room without any.
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: start;
+                padding-top: 4px;
+                @children
+            }
+        }
+    }
+}
+
+// A choice from a list, e.g. the folder: shows the current one, opens the list below.
+export component Picker inherits VerticalLayout {
+    in property <string> label;
+    // An empty option is shown as this, e.g. "No folder".
+    in property <[string]> options;
+    in property <string> empty-option;
+    in property <int> current;
+    callback chosen(int);
+    spacing: 5px;
+    if root.label != "": Text {
+        text: root.label;
+        color: Theme.text-muted;
+        font-size: Theme.font-small;
+    }
+    box := Rectangle {
+        height: 38px;
+        border-radius: Theme.radius-sm + 1px;
+        background: touch.has-hover ? Theme.surface-muted : Theme.surface;
+        border-width: 1px;
+        border-color: Theme.border-strong;
+        accessible-role: combobox;
+        accessible-label: root.label;
+        accessible-value: root.options[root.current] == "" ? root.empty-option : root.options[root.current];
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 8px;
+            Text {
+                horizontal-stretch: 1;
+                text: root.options[root.current] == "" ? root.empty-option : root.options[root.current];
+                color: Theme.text;
+                font-size: Theme.font-body + 1px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Icon {
+                y: (parent.height - self.height) / 2;
+                width: 16px;
+                height: 16px;
+                commands: Icons.chevron-down;
+            }
+        }
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                popup.show();
+            }
+        }
+        popup := PopupWindow {
+            x: 0;
+            y: parent.height + 4px;
+            width: parent.width;
+            Rectangle {
+                border-radius: Theme.radius-sm + 1px;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.border;
+                drop-shadow-blur: 12px;
+                drop-shadow-color: #00000030;
+                VerticalLayout {
+                    padding: 4px;
+                    for option[index] in root.options: Rectangle {
+                        height: 32px;
+                        border-radius: Theme.radius-sm;
+                        background: index == root.current ? Theme.accent-soft : option-touch.has-hover ? Theme.surface-muted : transparent;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text {
+                                text: option == "" ? root.empty-option : option;
+                                color: Theme.text;
+                                font-size: Theme.font-body;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        option-touch := TouchArea {
+                            clicked => {
+                                root.chosen(index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A link-like button: "+ Add website".
+component AddButton inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    height: 30px;
+    width: add-layout.preferred-width;
+    border-radius: Theme.radius-sm;
+    background: touch.has-hover ? Theme.accent-soft : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    add-layout := HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 8px;
+        spacing: 6px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 15px;
+            height: 15px;
+            commands: Icons.plus;
+            color: Theme.accent;
+        }
+        Text {
+            text: root.text;
+            color: Theme.accent;
+            font-size: Theme.font-body;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component Section inherits Rectangle {
+    in property <string> title;
+    border-radius: Theme.radius;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        if root.title != "": Text {
+            text: root.title;
+            color: Theme.text;
+            font-size: Theme.font-body;
+            font-weight: 700;
+        }
+        @children
+    }
+}
+
+component MenuRow inherits Rectangle {
+    in property <string> text;
+    callback clicked();
+    height: 32px;
+    border-radius: Theme.radius-sm;
+    background: touch.has-hover ? Theme.surface-muted : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        Text {
+            text: root.text;
+            color: Theme.text;
+            font-size: Theme.font-body;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// "Scan QR code": a menu of where from.
+component ScanButton inherits Rectangle {
+    callback scan(bool);
+    width: button.width;
+    height: button.height;
+    button := IconButton {
+        icon: Icons.scan;
+        label: @tr("Scan QR code");
+        clicked => {
+            menu.show();
+        }
+    }
+    menu := PopupWindow {
+        x: root.width - 220px;
+        y: root.height + 4px;
+        width: 220px;
+        Rectangle {
+            border-radius: Theme.radius-sm + 1px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000030;
+            VerticalLayout {
+                padding: 4px;
+                if Vault.can-scan-screen: MenuRow {
+                    text: @tr("Scan the screen");
+                    clicked => {
+                        root.scan(true);
+                    }
+                }
+                MenuRow {
+                    text: @tr("Choose an image…");
+                    clicked => {
+                        root.scan(false);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component ItemEditor inherits VerticalLayout {
+    property <string> problem: Vault.edit-problem == EditProblem.no-qr-code ? @tr("No authenticator QR code found.")
+        : Vault.edit-problem == EditProblem.not-a-key ? @tr("This file is not an SSH private key.")
+        : Vault.edit-problem == EditProblem.unreadable ? @tr("The file could not be read.")
+        : Vault.edit-problem == EditProblem.no-screenshot ? @tr("Could not take a screenshot.")
+        : Vault.edit-error;
+    spacing: 12px;
+    // Header: what is being edited, Cancel and Save.
+    HorizontalLayout {
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: Vault.edit-new ? Labels.new-item(Vault.edit-kind) : @tr("Edit item");
+                color: Theme.text;
+                font-size: Theme.font-title - 1px;
+                font-weight: 700;
+                overflow: elide;
+            }
+            Text {
+                text: Labels.kind(Vault.edit-kind);
+                color: Theme.text-muted;
+                font-size: Theme.font-small;
+            }
+        }
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: @tr("Cancel");
+            clicked => {
+                Vault.cancel-edit();
+            }
+        }
+        Button {
+            y: (parent.height - self.height) / 2;
+            text: Vault.saving ? @tr("Saving…") : @tr("Save");
+            primary: true;
+            enabled: !Vault.saving;
+            clicked => {
+                Vault.save-edit();
+            }
+        }
+    }
+    if root.problem != "": HorizontalLayout {
+        spacing: 8px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 15px;
+            height: 15px;
+            commands: Icons.alert;
+            color: Theme.danger;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.problem;
+            color: Theme.danger;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+        }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        scroll := Flickable {
+            width: 100%;
+            height: 100%;
+            content-height: form.preferred-height;
+            form := VerticalLayout {
+                width: parent.width;
+                spacing: 14px;
+                padding-bottom: 24px;
+                Section {
+                    title: Labels.group("details");
+                    name := FormField {
+                        label: @tr("Name");
+                        value: Vault.edit-name;
+                        edited(text) => {
+                            Vault.edit-name = text;
+                        }
+                        init => {
+                            if (Vault.edit-new) {
+                                self.focus-input();
+                            }
+                        }
+                    }
+                    Picker {
+                        label: @tr("Folder");
+                        options: Vault.folders;
+                        empty-option: @tr("No folder");
+                        current: Vault.edit-folder;
+                        chosen(index) => {
+                            Vault.edit-folder = index;
+                        }
+                    }
+                    Checkbox {
+                        text: @tr("Favorite");
+                        checked <=> Vault.edit-favorite;
+                    }
+                }
+                for group in Vault.edit-groups: Section {
+                    title: Labels.group(group.title);
+                    for i in group.count: FormField {
+                        label: Labels.value(Vault.edit-values[group.start + i].key);
+                        value: Vault.edit-values[group.start + i].value;
+                        secret: Vault.edit-values[group.start + i].secret;
+                        multiline: Vault.edit-values[group.start + i].multiline;
+                        readonly: Vault.edit-values[group.start + i].readonly;
+                        placeholder: Vault.edit-values[group.start + i].key == "private_key" && Vault.edit-new ? @tr("Leave empty to generate a new Ed25519 key, or paste a private key") : "";
+                        edited(text) => {
+                            Vault.edit-value(group.start + i, text);
+                        }
+                        if Vault.edit-values[group.start + i].key == "password": IconButton {
+                            icon: Icons.generate;
+                            label: @tr("Generate password");
+                            clicked => {
+                                Vault.generate-password(group.start + i);
+                            }
+                        }
+                        if Vault.edit-values[group.start + i].key == "totp": ScanButton {
+                            scan(screen) => {
+                                Vault.scan-qr(group.start + i, screen);
+                            }
+                        }
+                        if Vault.edit-values[group.start + i].key == "private_key": IconButton {
+                            icon: Icons.file;
+                            label: @tr("Import from a file");
+                            clicked => {
+                                Vault.import-key(group.start + i);
+                            }
+                        }
+                    }
+                }
+                if Vault.edit-kind == "login": Section {
+                    title: @tr("Websites");
+                    for uri[index] in Vault.edit-uris: FormField {
+                        value: uri;
+                        placeholder: "https://";
+                        edited(text) => {
+                            Vault.edit-uri(index, text);
+                        }
+                        IconButton {
+                            icon: Icons.close;
+                            label: @tr("Remove");
+                            clicked => {
+                                Vault.remove-uri(index);
+                            }
+                        }
+                    }
+                    // In a layout of its own: a fixed-width child would cap the section's width.
+                    HorizontalLayout {
+                        alignment: start;
+                        AddButton {
+                            text: @tr("Add website");
+                            clicked => {
+                                Vault.add-uri();
+                            }
+                        }
+                    }
+                }
+                Section {
+                    title: @tr("Custom fields");
+                    for field[index] in Vault.edit-fields: HorizontalLayout {
+                        spacing: 8px;
+                        FormField {
+                            width: 34%;
+                            value: field.name;
+                            placeholder: @tr("Field name");
+                            edited(text) => {
+                                Vault.edit-field-name(index, text);
+                            }
+                        }
+                        if field.kind != "boolean": FormField {
+                            horizontal-stretch: 1;
+                            value: field.value;
+                            secret: field.kind == "hidden";
+                            placeholder: @tr("Value");
+                            edited(text) => {
+                                Vault.edit-field-value(index, text);
+                            }
+                        }
+                        if field.kind == "boolean": Rectangle {
+                            horizontal-stretch: 1;
+                            Checkbox {
+                                x: 4px;
+                                text: "";
+                                checked: field.value == "true";
+                                changed checked => {
+                                    Vault.edit-field-value(index, self.checked ? "true" : "false");
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            IconButton {
+                                icon: Icons.close;
+                                label: @tr("Remove");
+                                clicked => {
+                                    Vault.remove-field(index);
+                                }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        AddButton {
+                            text: @tr("Text");
+                            clicked => {
+                                Vault.add-field("text");
+                            }
+                        }
+                        AddButton {
+                            text: @tr("Hidden");
+                            clicked => {
+                                Vault.add-field("hidden");
+                            }
+                        }
+                        AddButton {
+                            text: @tr("Checkbox");
+                            clicked => {
+                                Vault.add-field("boolean");
+                            }
+                        }
+                    }
+                }
+                Section {
+                    title: Labels.group("options");
+                    FormField {
+                        label: @tr("Notes");
+                        value: Vault.edit-notes;
+                        multiline: true;
+                        edited(text) => {
+                            Vault.edit-notes = text;
+                        }
+                    }
+                    Checkbox {
+                        text: @tr("Ask for the master password again");
+                        checked <=> Vault.edit-reprompt;
+                    }
+                }
+            }
+        }
+        ScrollBar {
+            x: parent.width - self.width;
+            height: parent.height;
+            content: scroll.content-height;
+            view: scroll.height;
+            offset <=> scroll.content-y;
+        }
+    }
+}

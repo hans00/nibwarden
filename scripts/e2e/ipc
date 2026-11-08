@@ -1,0 +1,43 @@
+#!/usr/bin/env -S python3 -I
+"""Sends one control request to nibwardend ($NIBWARDEN_SOCKET) for scripts/e2e.sh, for
+requests the CLI has no command for (editing items):
+
+    scripts/e2e/ipc METHOD [PARAMS-JSON]
+
+Prints the result as JSON, or the error to stderr with exit status 1."""
+import json
+import os
+import socket
+import struct
+import sys
+
+
+def call(sock, frame):
+    body = json.dumps(frame).encode()
+    sock.sendall(struct.pack(">I", len(body)) + body)
+    head = b""
+    while len(head) < 4:
+        chunk = sock.recv(4 - len(head))
+        if not chunk:
+            sys.exit("connection closed")
+        head += chunk
+    (n,) = struct.unpack(">I", head)
+    data = b""
+    while len(data) < n:
+        data += sock.recv(n - len(data))
+    return json.loads(data)
+
+
+method = sys.argv[1]
+params = json.loads(sys.argv[2]) if len(sys.argv) > 2 else None
+sock = socket.socket(socket.AF_UNIX)
+sock.connect(os.environ["NIBWARDEN_SOCKET"])
+call(sock, {"v": 1, "id": 1, "method": "hello", "params": {"client": "e2e", "version": "0"}})
+frame = {"v": 1, "id": 2, "method": method}
+if params is not None:
+    frame["params"] = params
+reply = call(sock, frame)
+if "error" in reply:
+    print(f"{reply['error']['code']}: {reply['error']['message']}", file=sys.stderr)
+    sys.exit(1)
+print(json.dumps(reply["result"]))

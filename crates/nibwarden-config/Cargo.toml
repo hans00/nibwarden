@@ -1,0 +1,17 @@
+[package]
+name = "nibwarden-config"
+description = "User settings in config.toml, shared by nibwardend, the CLI and the GUI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+nibwarden-platform = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
+tracing = { workspace = true }

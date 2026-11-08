@@ -1,0 +1,543 @@
+// Signing in and creating an account in the main window (phase2.md §5.7), shown while no
+// account is logged in. Like the official clients: the server first (bitwarden.com,
+// bitwarden.eu or a self-hosted one), then email and master password, then a two-step
+// code if the account has one. A new account confirms its email address with the link
+// the server sends, unless the server does not verify addresses.
+import { Theme } from "theme.slint";
+import { AppMark, Button, Icon, Icons, Segmented } from "components.slint";
+import { FormField } from "editor.slint";
+
+export enum AccountPage { sign-in, two-step, register, check-email, set-password }
+
+export global Account {
+    in-out property <AccountPage> page;
+    // 0: bitwarden.com, 1: bitwarden.eu, 2: self-hosted at `server-url`.
+    in-out property <int> server-kind;
+    in-out property <string> server-url;
+    in-out property <string> email;
+    in-out property <string> name;
+    in-out property <string> password;
+    in-out property <string> password-again;
+    in-out property <string> hint;
+    // Two-step login: what the account offers, and which one is used.
+    in-out property <bool> can-authenticator;
+    in-out property <bool> can-email;
+    in-out property <bool> use-email;
+    in-out property <bool> code-sent;
+    // Not two-step login: the server wants this device confirmed with an emailed code.
+    in-out property <bool> new-device;
+    in-out property <string> code;
+    // The link from the verification email.
+    in-out property <string> link;
+    in-out property <bool> busy;
+    in-out property <string> error;
+
+    // Messages the Rust side shows, translated here; anything else is the server's.
+    public pure function message(key: string) -> string {
+        return key == "email" ? @tr("Enter your email address.")
+            : key == "server-url" ? @tr("Enter the address of your server.")
+            : key == "password" ? @tr("Enter your master password.")
+            : key == "code" ? @tr("Enter the 6-digit code.")
+            : key == "link" ? @tr("Paste the link from the email.")
+            : key == "bad-link" ? @tr("That is not the link from the email.")
+            : key == "short" ? @tr("The master password needs at least 12 characters.")
+            : key == "mismatch" ? @tr("The two passwords differ.")
+            : key == "hint-is-password" ? @tr("The hint must not be the password itself.")
+            : key == "no-daemon" ? @tr("nibwardend is not running.")
+            : key;
+    }
+
+    // The typed two-step code with everything but digits dropped, at most `code-length`
+    // of them; and its `index`th digit, or "" past the end.
+    pure callback clean-code(string) -> string;
+    pure callback digit(string, int) -> string;
+    // As `CODE_LENGTH` in account.rs.
+    out property <int> code-length: 6;
+
+    callback sign-in();
+    callback send-code();
+    callback submit-code();
+    callback start-register();
+    callback use-link();
+    callback create-account();
+    // To another page; the master password and code are forgotten.
+    callback go(AccountPage);
+}
+
+component Title inherits Text {
+    horizontal-alignment: center;
+    color: Theme.text;
+    font-size: Theme.font-title;
+    font-weight: 700;
+    wrap: word-wrap;
+}
+
+component Note inherits Text {
+    horizontal-alignment: center;
+    color: Theme.text-muted;
+    font-size: Theme.font-body;
+    wrap: word-wrap;
+}
+
+component Problem inherits HorizontalLayout {
+    in property <string> text;
+    spacing: 8px;
+    Icon {
+        y: 2px;
+        width: 15px;
+        height: 15px;
+        commands: Icons.alert;
+        color: Theme.danger;
+    }
+    Text {
+        horizontal-stretch: 1;
+        text: root.text;
+        color: Theme.danger;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+    }
+}
+
+// A text button: "Create account", "Back".
+component LinkButton inherits Text {
+    callback clicked();
+    color: touch.has-hover ? Theme.accent-hover : Theme.accent;
+    font-size: Theme.font-body;
+    font-weight: 600;
+    accessible-role: button;
+    accessible-action-default => {
+        root.clicked();
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A line with a question and a link: "New here? Create account".
+component Question inherits HorizontalLayout {
+    in property <string> question;
+    in property <string> action;
+    callback clicked();
+    alignment: center;
+    spacing: 6px;
+    Text {
+        text: root.question;
+        color: Theme.text-muted;
+        font-size: Theme.font-body;
+    }
+    LinkButton {
+        text: root.action;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component Busy inherits Button {
+    primary: true;
+    busy: Account.busy;
+}
+
+// A two-step code as a row of boxes, one per digit. Typing goes to a TextInput that is
+// there but not drawn; the boxes show what it holds, and where the next digit goes.
+component CodeField inherits Rectangle {
+    in property <string> value;
+    callback edited(string);
+    callback accepted();
+    public function focus-input() {
+        input.focus();
+    }
+    property <length> box: 48px;
+    property <length> gap: 10px;
+    property <int> filled: Account.clean-code(root.value).character-count;
+    height: 56px;
+    accessible-role: text-input;
+    accessible-label: @tr("Code");
+    accessible-value: root.value;
+    init => {
+        input.text = root.value;
+    }
+    changed value => {
+        if (input.text != root.value) {
+            input.text = root.value;
+            // Digits only, so bytes and characters agree.
+            input.set-selection-offsets(root.filled, root.filled);
+        }
+    }
+    input := TextInput {
+        opacity: 0;
+        single-line: true;
+        input-type: InputType.number;
+        edited => {
+            root.edited(self.text);
+        }
+        accepted => {
+            root.accepted();
+        }
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: root.gap;
+        for index in Account.code-length: Rectangle {
+            // The box the next digit goes into; the last one once all are filled.
+            property <bool> current: input.has-focus && index == min(root.filled, Account.code-length - 1);
+            width: root.box;
+            height: root.height;
+            border-radius: Theme.radius;
+            background: Theme.surface;
+            border-width: self.current ? 2px : 1px;
+            border-color: self.current ? Theme.accent : Theme.border-strong;
+            animate border-color { duration: 120ms; }
+            Text {
+                text: Account.digit(root.value, index);
+                color: Theme.text;
+                font-size: 24px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            if self.current && root.filled < Account.code-length: Rectangle {
+                width: 2px;
+                height: 26px;
+                background: Theme.accent;
+                // Blinks like a text cursor.
+                opacity: mod(animation-tick() / 1ms, 1060) < 530 ? 1 : 0;
+            }
+        }
+    }
+    TouchArea {
+        mouse-cursor: text;
+        clicked => {
+            input.focus();
+        }
+    }
+}
+
+// Which server, and its address when self-hosted.
+component ServerChoice inherits VerticalLayout {
+    spacing: 8px;
+    Text {
+        text: @tr("Server");
+        color: Theme.text-muted;
+        font-size: Theme.font-small;
+    }
+    Segmented {
+        options: ["bitwarden.com", "bitwarden.eu", @tr("Self-hosted")];
+        fill: true;
+        selected <=> Account.server-kind;
+    }
+    if Account.server-kind == 2: FormField {
+        value: Account.server-url;
+        placeholder: "https://vault.example.com";
+        edited(text) => {
+            Account.server-url = text;
+        }
+    }
+}
+
+component Header inherits VerticalLayout {
+    in property <string> title;
+    in property <string> note;
+    spacing: 8px;
+    HorizontalLayout {
+        alignment: center;
+        AppMark { }
+    }
+    Rectangle { height: 8px; }
+    Title {
+        text: root.title;
+    }
+    if root.note != "": Note {
+        text: root.note;
+    }
+    Rectangle { height: 10px; }
+}
+
+component SignInPage inherits VerticalLayout {
+    spacing: 14px;
+    Header {
+        title: @tr("Sign in to nibwarden");
+    }
+    ServerChoice { }
+    email := FormField {
+        label: @tr("Email");
+        value: Account.email;
+        edited(text) => {
+            Account.email = text;
+        }
+        accepted => {
+            password.focus-input();
+        }
+    }
+    password := FormField {
+        label: @tr("Master password");
+        value: Account.password;
+        secret: true;
+        edited(text) => {
+            Account.password = text;
+        }
+        accepted => {
+            Account.sign-in();
+        }
+    }
+    if Account.error != "": Problem {
+        text: Account.error;
+    }
+    Busy {
+        text: @tr("Sign in");
+        clicked => {
+            Account.sign-in();
+        }
+    }
+    Question {
+        question: @tr("No account yet?");
+        action: @tr("Create account");
+        clicked => {
+            Account.go(AccountPage.register);
+        }
+    }
+    init => {
+        if (Account.email == "") {
+            email.focus-input();
+        } else {
+            password.focus-input();
+        }
+    }
+}
+
+component TwoStepPage inherits VerticalLayout {
+    spacing: 14px;
+    Header {
+        title: Account.new-device ? @tr("Verify new device") : @tr("Two-step login");
+        note: Account.use-email
+            ? (Account.code-sent ? @tr("Enter the code sent to {0}.", Account.email) : @tr("Have a code sent to {0}.", Account.email))
+            : @tr("Enter the code from your authenticator app.");
+    }
+    if Account.can-authenticator && Account.can-email: HorizontalLayout {
+        alignment: center;
+        Segmented {
+            options: [@tr("Authenticator app"), @tr("Email")];
+            selected: Account.use-email ? 1 : 0;
+            chosen(index) => {
+                Account.use-email = index == 1;
+                Account.error = "";
+                code.focus-input();
+            }
+        }
+    }
+    code := CodeField {
+        value: Account.code;
+        edited(text) => {
+            Account.code = Account.clean-code(text);
+        }
+        accepted => {
+            Account.submit-code();
+        }
+    }
+    if Account.error != "": Problem {
+        text: Account.error;
+    }
+    if Account.use-email: Button {
+        text: Account.code-sent ? @tr("Send again") : @tr("Send code");
+        primary: !Account.code-sent;
+        enabled: !Account.busy;
+        clicked => {
+            Account.send-code();
+        }
+    }
+    Busy {
+        text: @tr("Continue");
+        clicked => {
+            Account.submit-code();
+        }
+    }
+    HorizontalLayout {
+        alignment: center;
+        LinkButton {
+            text: @tr("Back");
+            clicked => {
+                Account.go(AccountPage.sign-in);
+            }
+        }
+    }
+    init => {
+        code.focus-input();
+    }
+}
+
+component RegisterPage inherits VerticalLayout {
+    spacing: 14px;
+    Header {
+        title: @tr("Create account");
+    }
+    ServerChoice { }
+    email := FormField {
+        label: @tr("Email");
+        value: Account.email;
+        edited(text) => {
+            Account.email = text;
+        }
+        accepted => {
+            name.focus-input();
+        }
+    }
+    name := FormField {
+        label: @tr("Name (optional)");
+        value: Account.name;
+        edited(text) => {
+            Account.name = text;
+        }
+        accepted => {
+            Account.start-register();
+        }
+    }
+    if Account.error != "": Problem {
+        text: Account.error;
+    }
+    Busy {
+        text: @tr("Continue");
+        clicked => {
+            Account.start-register();
+        }
+    }
+    Question {
+        question: @tr("Already have an account?");
+        action: @tr("Sign in");
+        clicked => {
+            Account.go(AccountPage.sign-in);
+        }
+    }
+    init => {
+        email.focus-input();
+    }
+}
+
+component CheckEmailPage inherits VerticalLayout {
+    spacing: 14px;
+    Header {
+        title: @tr("Check your email");
+        note: @tr("Paste the link sent to {0}.", Account.email);
+    }
+    link := FormField {
+        label: @tr("Link from the email");
+        value: Account.link;
+        placeholder: "https://…";
+        edited(text) => {
+            Account.link = text;
+        }
+        accepted => {
+            Account.use-link();
+        }
+    }
+    if Account.error != "": Problem {
+        text: Account.error;
+    }
+    Busy {
+        text: @tr("Continue");
+        clicked => {
+            Account.use-link();
+        }
+    }
+    HorizontalLayout {
+        alignment: center;
+        LinkButton {
+            text: @tr("Back");
+            clicked => {
+                Account.go(AccountPage.register);
+            }
+        }
+    }
+    init => {
+        link.focus-input();
+    }
+}
+
+component SetPasswordPage inherits VerticalLayout {
+    spacing: 14px;
+    Header {
+        title: @tr("Choose a master password");
+        note: Account.email;
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        Icon {
+            y: 2px;
+            width: 15px;
+            height: 15px;
+            commands: Icons.alert;
+            color: Theme.text-muted;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: @tr("A forgotten master password cannot be recovered.");
+            color: Theme.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+        }
+    }
+    password := FormField {
+        label: @tr("Master password");
+        value: Account.password;
+        secret: true;
+        edited(text) => {
+            Account.password = text;
+        }
+        accepted => {
+            again.focus-input();
+        }
+    }
+    again := FormField {
+        label: @tr("Master password again");
+        value: Account.password-again;
+        secret: true;
+        edited(text) => {
+            Account.password-again = text;
+        }
+        accepted => {
+            hint.focus-input();
+        }
+    }
+    hint := FormField {
+        label: @tr("Hint (optional)");
+        value: Account.hint;
+        edited(text) => {
+            Account.hint = text;
+        }
+        accepted => {
+            Account.create-account();
+        }
+    }
+    if Account.error != "": Problem {
+        text: Account.error;
+    }
+    Busy {
+        text: @tr("Create account");
+        clicked => {
+            Account.create-account();
+        }
+    }
+    init => {
+        password.focus-input();
+    }
+}
+
+// The page for `Account.page`, in a column of readable width, scrolled when the window is
+// short.
+export component AccountPanel inherits Flickable {
+    content-height: max(self.height, column.preferred-height + 64px);
+    column := VerticalLayout {
+        x: (parent.width - self.width) / 2;
+        y: max(24px, (parent.height - self.preferred-height) / 2 - 24px);
+        width: min(400px, parent.width - 48px);
+        // Its own height, not the window's: extra room would spread the form apart.
+        height: self.preferred-height;
+        if Account.page == AccountPage.sign-in: SignInPage { }
+        if Account.page == AccountPage.two-step: TwoStepPage { }
+        if Account.page == AccountPage.register: RegisterPage { }
+        if Account.page == AccountPage.check-email: CheckEmailPage { }
+        if Account.page == AccountPage.set-password: SetPasswordPage { }
+    }
+}

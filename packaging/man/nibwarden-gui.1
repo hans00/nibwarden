@@ -1,0 +1,45 @@
+.TH NIBWARDEN\-GUI 1 2026-11-06 "nibwarden" "User Commands"
+.SH NAME
+nibwarden\-gui \- nibwarden's windows
+.SH SYNOPSIS
+.B nibwarden\-gui
+.RB [ vault | quick | settings | tray ]
+.SH DESCRIPTION
+.B nibwarden\-gui
+shows the vault of
+.BR nibwardend (1)
+on the desktop.
+It starts the daemon when it is not running.
+.TP
+.BR vault " (the default)"
+The main window: browse, search, add and edit items, Sends, the password generator,
+import and export.
+Signed out, it signs in (bitwarden.com, bitwarden.eu or a self\-hosted server, with a
+two\-step code if the account has one) or creates an account.
+.TP
+.B quick
+Quick access: search the vault and copy a field with the keyboard.
+.B nibwarden quick \-\-install\-shortcut
+binds it to a key.
+.TP
+.B settings
+The settings window.
+.TP
+.B tray
+An icon in the system tray (StatusNotifierItem; on GNOME it needs the AppIndicator
+extension).
+Turning the tray on in the settings window also starts it at login.
+.PP
+.B nibwardend
+also runs
+.B nibwarden\-gui prompt
+for its unlock and approval windows.
+.SH ENVIRONMENT
+.TP
+.B SLINT_BACKEND
+.B winit\-software
+draws without OpenGL.
+Without OpenGL nibwarden\-gui switches to it by itself.
+.SH SEE ALSO
+.BR nibwarden (1),
+.BR nibwardend (1)

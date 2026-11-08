@@ -1,0 +1,1015 @@
+// Building blocks for nibwarden windows: own components instead of the std widgets, so
+// every window has the same look on every desktop.
+import { Theme } from "theme.slint";
+
+// Stroke icons on a 24×24 grid (paths after Lucide, ISC licence).
+export component Icon inherits Path {
+    in property <color> color: Theme.text-muted;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    width: 18px;
+    height: 18px;
+    stroke: color;
+    stroke-width: 1.8px;
+    fill: transparent;
+}
+
+export global Icons {
+    out property <string> send: "M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.63l-19 6.5a.5.5 0 0 0-.02.93l7.93 3.18a2 2 0 0 1 1.11 1.11z M21.85 2.15l-10.94 10.94";
+    out property <string> transfer: "M7 16V4 M3 8l4-4 4 4 M17 8v12 M21 16l-4 4-4-4";
+    out property <string> download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3";
+    out property <string> upload: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12";
+    out property <string> link: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
+    out property <string> sign-out: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9";
+    out property <string> lock: "M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z M7 11V7a5 5 0 0 1 10 0v4";
+    out property <string> eye: "M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0 M15 12a3 3 0 1 1-6 0 3 3 0 1 1 6 0";
+    out property <string> eye-off: "M10.73 5.08a10.74 10.74 0 0 1 11.2 6.57 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49 M14.08 14.16a3 3 0 0 1-4.24-4.24 M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14 M2 2l20 20";
+    out property <string> terminal: "M4 17l6-6-6-6 M12 19h8";
+    out property <string> arrow-right: "M5 12h14 M12 5l7 7-7 7";
+    out property <string> alert: "M12 8v4 M12 16h.01 M22 12a10 10 0 1 1-20 0 10 10 0 1 1 20 0";
+    out property <string> key: "M2.59 18.41A2 2 0 0 0 2 19.83V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.17a2 2 0 0 0 1.42-.59l.81-.81a6.5 6.5 0 1 0-4.17-4.17z M17 7.5a.5.5 0 1 1-1 0 .5.5 0 1 1 1 0";
+    out property <string> check: "M20 6 9 17l-5-5";
+    out property <string> search: "M21 21l-4.34-4.34 M19 11a8 8 0 1 1-16 0 8 8 0 1 1 16 0";
+    out property <string> user: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 1 1 8 0";
+    out property <string> clock: "M12 6v6l4 2 M22 12a10 10 0 1 1-20 0 10 10 0 1 1 20 0";
+    out property <string> copy: "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2";
+    out property <string> chevron-right: "M9 18l6-6-6-6";
+    out property <string> chevron-left: "M15 18l-6-6 6-6";
+    out property <string> close: "M18 6 6 18 M6 6l12 12";
+    out property <string> globe: "M22 12a10 10 0 1 1-20 0 10 10 0 1 1 20 0 M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z";
+    out property <string> note: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z M14 2v4a2 2 0 0 0 2 2h4 M16 13H8 M16 17H8";
+    out property <string> refresh: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8 M21 3v5h-5 M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16 M8 16H3v5";
+    out property <string> star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z";
+    out property <string> grid: "M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z";
+    out property <string> folder: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z";
+    out property <string> card: "M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M2 10h20";
+    out property <string> external: "M15 3h6v6 M10 14 21 3 M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6";
+    out property <string> minimize: "M5 12h14";
+    out property <string> edit: "M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z M15 5l4 4";
+    out property <string> plus: "M5 12h14 M12 5v14";
+    out property <string> trash: "M3 6h18 M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6 M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2 M10 11v6 M14 11v6";
+    out property <string> restore: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5";
+    out property <string> chevron-down: "M6 9l6 6 6-6";
+    out property <string> generate: "M15 4V2 M15 16v-2 M8 9h2 M20 9h2 M17.8 11.8 19 13 M15 9h.01 M17.8 6.2 19 5 M3 21l9-9 M12.2 6.2 11 5";
+    out property <string> scan: "M3 7V5a2 2 0 0 1 2-2h2 M17 3h2a2 2 0 0 1 2 2v2 M21 17v2a2 2 0 0 1-2 2h-2 M7 21H5a2 2 0 0 1-2-2v-2 M7 12h10";
+    out property <string> file: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z M14 2v4a2 2 0 0 0 2 2h4 M12 18v-6 M9 15l3 3 3-3";
+    out property <string> maximize: "M6 6h12v12H6z";
+    out property <string> settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z M15 12a3 3 0 1 1-6 0 3 3 0 1 1 6 0";
+}
+
+// Indeterminate progress: a three-quarter arc going round. Drawn from scratch each frame
+// (no rotation transform, which not every renderer supports).
+export component Spinner inherits Rectangle {
+    in property <color> tint: Theme.accent;
+    width: 18px;
+    height: 18px;
+    accessible-role: progress-indicator;
+    property <angle> start: mod(animation-tick() / 1ms, 900) / 900 * 360deg;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        stroke: root.tint.with-alpha(0.2);
+        stroke-width: 2.4px;
+        fill: transparent;
+        commands: "M21 12a9 9 0 1 1-18 0 9 9 0 1 1 18 0";
+    }
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        stroke: root.tint;
+        stroke-width: 2.4px;
+        fill: transparent;
+        MoveTo {
+            x: 12 + 9 * cos(root.start);
+            y: 12 + 9 * sin(root.start);
+        }
+        ArcTo {
+            x: 12 + 9 * cos(root.start + 100deg);
+            y: 12 + 9 * sin(root.start + 100deg);
+            radius-x: 9;
+            radius-y: 9;
+            sweep: true;
+        }
+    }
+}
+
+// The rounded card that is the visible window: windows are transparent around it, which
+// leaves room for a soft shadow (desktops draw none for frameless windows).
+// Place it with `x`/`y` = `Theme.window-margin` and the window size minus twice that.
+export component WindowCard inherits Rectangle {
+    border-radius: Theme.window-radius;
+    background: Theme.window;
+    border-width: 1px;
+    border-color: Theme.dark ? #ffffff1a : #0000001a;
+    drop-shadow-blur: Theme.window-margin;
+    drop-shadow-offset-y: 2px;
+    drop-shadow-color: Theme.dark ? #00000099 : #0000003a;
+    clip: true;
+    @children
+}
+
+// A labelled copy button, clearly a button: "Copy password".
+export component CopyChip inherits Rectangle {
+    in property <string> text;
+    in property <string> icon: Icons.copy;
+    callback clicked();
+    height: 28px;
+    width: chip-layout.preferred-width;
+    border-radius: 14px;
+    background: touch.pressed ? Theme.accent.with-alpha(0.3) : touch.has-hover ? Theme.accent-soft : Theme.surface;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.accent : Theme.border-strong;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => {
+        root.clicked();
+    }
+    chip-layout := HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 6px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 14px;
+            height: 14px;
+            commands: root.icon;
+            color: touch.has-hover ? Theme.accent : Theme.text-muted;
+        }
+        Text {
+            text: root.text;
+            color: touch.has-hover ? Theme.accent : Theme.text;
+            font-size: Theme.font-small;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// The nibwarden mark: a rounded tile with a keyhole. Solid colour: the software renderer
+// does not round or shadow gradients.
+export component AppMark inherits Rectangle {
+    in property <length> size: 56px;
+    width: size;
+    height: size;
+    border-radius: size * 0.3;
+    background: #3373f2;
+    border-width: 1px;
+    border-color: #ffffff22;
+    Path {
+        width: parent.size * 0.5;
+        height: parent.size * 0.5;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        fill: white;
+        // Keyhole: a circle over a tapered slot.
+        commands: "M12 3a5 5 0 0 1 2.6 9.27l1.15 7.48A1.1 1.1 0 0 1 14.66 21h-5.32a1.1 1.1 0 0 1-1.09-1.25l1.15-7.48A5 5 0 0 1 12 3z";
+    }
+}
+
+// Initial in a circle, for the account.
+export component Avatar inherits Rectangle {
+    in property <string> initial;
+    width: 28px;
+    height: 28px;
+    border-radius: self.width / 2;
+    background: Theme.accent-soft;
+    Text {
+        text: root.initial == "" ? "?" : root.initial;
+        color: Theme.accent;
+        font-size: 13px;
+        font-weight: 700;
+    }
+}
+
+export component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    // A primary button for something that cannot be undone.
+    in property <bool> danger;
+    // Working on it: a spinner in place of the label, and no second click.
+    in property <bool> busy;
+    callback clicked();
+
+    height: 38px;
+    min-width: 92px;
+    border-radius: Theme.radius-sm + 2px;
+    background: !primary ? (touch.pressed ? Theme.border : touch.has-hover ? Theme.surface-muted : transparent)
+        : danger ? (touch.pressed || touch.has-hover ? Theme.danger.darker(0.15) : Theme.danger)
+        : !enabled && !busy ? Theme.accent.with-alpha(0.45)
+        : touch.pressed ? Theme.accent-pressed : touch.has-hover ? Theme.accent-hover : Theme.accent;
+    border-width: primary ? 0 : 1px;
+    border-color: Theme.border;
+    animate background { duration: 120ms; }
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled && !root.busy;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    if root.busy: Spinner {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        tint: root.primary ? Theme.on-accent : Theme.accent;
+    }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        visible: !root.busy;
+        Text {
+            text: root.text;
+            color: root.primary ? Theme.on-accent : Theme.text;
+            font-size: Theme.font-body;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled && !root.busy;
+        mouse-cursor: self.enabled ? pointer : default;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Master password field: lock icon, masked input, reveal toggle and an inline submit arrow.
+export component PasswordField inherits Rectangle {
+    in property <string> placeholder: @tr("Master password");
+    in property <bool> enabled: true;
+    // Checking the password (the key derivation takes a few seconds): a spinner instead
+    // of the submit arrow.
+    in property <bool> busy;
+    in property <bool> error;
+    in-out property <string> text;
+    in-out property <bool> revealed;
+    callback accepted();
+    forward-focus: input;
+
+    height: 48px;
+    border-radius: Theme.radius;
+    background: Theme.surface;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: error ? Theme.danger : input.has-focus ? Theme.accent : Theme.border-strong;
+    animate border-color { duration: 120ms; }
+
+    // Soft focus ring outside the border.
+    Rectangle {
+        x: -4px;
+        y: -4px;
+        width: parent.width + 8px;
+        height: parent.height + 8px;
+        border-radius: Theme.radius + 4px;
+        border-width: 4px;
+        border-color: input.has-focus ? (root.error ? Theme.danger-soft : Theme.accent-soft) : transparent;
+        animate border-color { duration: 120ms; }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 6px;
+        spacing: 10px;
+        alignment: stretch;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            commands: Icons.lock;
+            color: input.has-focus ? Theme.accent : Theme.text-faint;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            input := TextInput {
+                width: 100%;
+                height: 100%;
+                vertical-alignment: center;
+                input-type: root.revealed ? InputType.text : InputType.password;
+                text <=> root.text;
+                enabled: root.enabled;
+                color: Theme.text;
+                selection-background-color: Theme.accent-soft;
+                font-size: 15px;
+                single-line: true;
+                accepted => {
+                    root.accepted();
+                }
+            }
+            if root.text == "": Text {
+                x: 0;
+                width: 100%;
+                height: 100%;
+                vertical-alignment: center;
+                text: root.placeholder;
+                color: Theme.text-faint;
+                font-size: 15px;
+            }
+        }
+        reveal := Rectangle {
+            width: 32px;
+            height: 32px;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius-sm;
+            background: reveal-touch.has-hover ? Theme.surface-muted : transparent;
+            Icon {
+                commands: root.revealed ? Icons.eye-off : Icons.eye;
+                color: Theme.text-muted;
+            }
+            accessible-role: button;
+            accessible-label: root.revealed ? @tr("Hide password") : @tr("Show password");
+            accessible-action-default => {
+                root.revealed = !root.revealed;
+            }
+            reveal-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.revealed = !root.revealed;
+                    input.focus();
+                }
+            }
+        }
+        submit := Rectangle {
+            width: 36px;
+            height: 36px;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius-sm + 2px;
+            background: root.text == "" || !root.enabled ? Theme.surface-muted
+                : submit-touch.pressed ? Theme.accent-pressed
+                : submit-touch.has-hover ? Theme.accent-hover : Theme.accent;
+            animate background { duration: 120ms; }
+            if !root.busy: Icon {
+                commands: Icons.arrow-right;
+                stroke-width: 2.2px;
+                color: root.text == "" || !root.enabled ? Theme.text-faint : Theme.on-accent;
+            }
+            if root.busy: Spinner {
+                tint: Theme.accent;
+            }
+            accessible-role: button;
+            accessible-label: @tr("Unlock");
+            accessible-enabled: root.text != "" && root.enabled;
+            accessible-action-default => {
+                root.accepted();
+            }
+            submit-touch := TouchArea {
+                enabled: root.text != "" && root.enabled;
+                mouse-cursor: self.enabled ? pointer : default;
+                clicked => {
+                    root.accepted();
+                }
+            }
+        }
+    }
+}
+
+// "Who is asking": the program waiting for the vault, as the OS identified it.
+export component RequesterCard inherits Rectangle {
+    in property <string> name;
+    in property <string> detail;
+    in property <string> verb: @tr("wants to use your vault");
+    border-radius: Theme.radius;
+    background: Theme.surface-muted;
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 12px;
+        Rectangle {
+            width: 36px;
+            height: 36px;
+            border-radius: Theme.radius-sm + 2px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            Icon {
+                commands: Icons.terminal;
+                color: Theme.text;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            HorizontalLayout {
+                spacing: 5px;
+                alignment: start;
+                Text {
+                    text: root.name;
+                    color: Theme.text;
+                    font-size: Theme.font-body;
+                    font-weight: 700;
+                }
+                Text {
+                    text: root.verb;
+                    color: Theme.text;
+                    font-size: Theme.font-body;
+                }
+            }
+            if root.detail != "": Text {
+                text: root.detail;
+                color: Theme.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+// A tick box with a label; the whole row toggles it.
+export component Checkbox inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> checked;
+    height: 24px;
+    accessible-role: checkbox;
+    accessible-label: root.text;
+    accessible-checked: root.checked;
+    accessible-action-default => {
+        root.checked = !root.checked;
+    }
+    HorizontalLayout {
+        spacing: 9px;
+        alignment: start;
+        Rectangle {
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 5px;
+            background: root.checked ? Theme.accent : Theme.surface;
+            border-width: root.checked ? 0 : 1.5px;
+            border-color: touch.has-hover ? Theme.accent : Theme.border-strong;
+            animate background { duration: 120ms; }
+            if root.checked: Icon {
+                width: 13px;
+                height: 13px;
+                commands: Icons.check;
+                stroke-width: 3px;
+                color: Theme.on-accent;
+            }
+        }
+        Text {
+            text: root.text;
+            color: Theme.text;
+            font-size: Theme.font-body;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+        }
+    }
+}
+
+export enum ActionKind { ssh-sign, read-secret, change-item, send, export, import, browser }
+export enum PurposeKind { login, git, file, unknown }
+
+// What a program asks to do, as the OS identified the program (phase2.md §5.3).
+export component AccessCard inherits Rectangle {
+    in property <string> name;
+    in property <string> detail;
+    in property <ActionKind> action;
+    // SSH key name or item name.
+    in property <string> target;
+    // Field name for read-secret; the change (create, edit, ...) for change-item; read,
+    // create or delete for send; the format for export; unlock or verify for browser.
+    in property <string> field;
+    in property <PurposeKind> purpose;
+    // Login user or signature namespace; for import the number of items, if known.
+    in property <string> purpose-arg;
+
+    property <string> field-label: field == "password" ? @tr("password")
+        : field == "username" ? @tr("username")
+        : field == "totp" ? @tr("one-time code")
+        : field == "notes" ? @tr("notes")
+        : field == "uri" ? @tr("website")
+        : field;
+    property <string> sentence: action == ActionKind.browser
+        ? (field == "unlock" ? @tr("wants to unlock the Bitwarden browser extension with your vault's key")
+            : @tr("wants to confirm it is you, so the Bitwarden browser extension can be unlocked with nibwarden"))
+        : action == ActionKind.export
+        ? (field == "csv" ? @tr("wants to export your whole vault as an unencrypted CSV file")
+            : field == "json" ? @tr("wants to export your whole vault as an unencrypted JSON file")
+            : @tr("wants to export your whole vault as a password-protected JSON file"))
+        : action == ActionKind.import
+        ? (purpose-arg != "" ? @tr("wants to import {0} items from \"{1}\" into your vault", purpose-arg, target)
+            : @tr("wants to import the items in \"{0}\" into your vault", target))
+        : action == ActionKind.send
+        ? (field == "create" ? @tr("wants to create the Send \"{0}\"", target)
+            : field == "delete" ? @tr("wants to delete the Send \"{0}\"", target)
+            : @tr("wants to read the Send \"{0}\" and its link", target))
+        : action == ActionKind.change-item
+        ? (field == "create" ? @tr("wants to add \"{0}\" to your vault", target)
+            : field == "favorite" ? @tr("wants to change whether \"{0}\" is a favourite", target)
+            : field == "trash" ? @tr("wants to move \"{0}\" to the trash", target)
+            : field == "restore" ? @tr("wants to restore \"{0}\" from the trash", target)
+            : field == "delete" ? @tr("wants to delete \"{0}\" permanently", target)
+            : @tr("wants to change \"{0}\"", target))
+        : action == ActionKind.read-secret && field == "all"
+        ? @tr("wants to read everything in \"{0}\"", target)
+        : action == ActionKind.read-secret
+        ? @tr("wants to read the {0} of \"{1}\"", field-label, target)
+        : purpose == PurposeKind.login ? @tr("wants to log in as {0} with the SSH key \"{1}\"", purpose-arg, target)
+        : purpose == PurposeKind.git ? @tr("wants to sign a git commit with the SSH key \"{0}\"", target)
+        : purpose == PurposeKind.file ? @tr("wants to sign \"{0}\" data with the SSH key \"{1}\"", purpose-arg, target)
+        : @tr("wants to sign with the SSH key \"{0}\"", target);
+
+    border-radius: Theme.radius;
+    background: Theme.surface-muted;
+    accessible-role: text;
+    accessible-label: root.name + " " + root.sentence;
+    HorizontalLayout {
+        padding: 14px;
+        spacing: 12px;
+        alignment: stretch;
+        Rectangle {
+            width: 36px;
+            height: 36px;
+            y: 0;
+            border-radius: Theme.radius-sm + 2px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            Icon {
+                commands: root.action == ActionKind.ssh-sign ? Icons.key : root.action == ActionKind.change-item ? Icons.edit : root.action == ActionKind.send ? Icons.send : root.action == ActionKind.export ? Icons.download : root.action == ActionKind.import ? Icons.upload : root.action == ActionKind.browser ? Icons.globe : Icons.lock;
+                color: Theme.text;
+            }
+        }
+        VerticalLayout {
+            spacing: 3px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.name;
+                color: Theme.text;
+                font-size: Theme.font-body + 1px;
+                font-weight: 700;
+            }
+            Text {
+                text: root.sentence;
+                color: Theme.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+            }
+            if root.detail != "": Text {
+                text: root.detail;
+                color: Theme.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+// Title bar for our frameless windows: the desktop's own decorations draw titles with a
+// font that may lack the user's script, so nibwarden draws its own. Dragging it moves
+// the window.
+export component TitleBar inherits Rectangle {
+    in property <string> title;
+    in property <bool> closable: true;
+    in property <bool> has-settings;
+    callback close();
+    callback settings();
+    height: 40px;
+    WindowMoveArea {
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 6px;
+            spacing: 8px;
+            Text {
+                horizontal-stretch: 1;
+                text: root.title;
+                color: Theme.text-muted;
+                font-size: Theme.font-small;
+                font-weight: 600;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if root.has-settings: Rectangle {
+                width: 32px;
+                height: 28px;
+                y: (parent.height - self.height) / 2;
+                border-radius: Theme.radius-sm;
+                background: settings-touch.has-hover ? Theme.surface-muted : transparent;
+                accessible-role: button;
+                accessible-label: @tr("Settings");
+                accessible-action-default => {
+                    root.settings();
+                }
+                Icon {
+                    width: 16px;
+                    height: 16px;
+                    commands: Icons.settings;
+                    color: Theme.text-muted;
+                }
+                settings-touch := TouchArea {
+                    clicked => {
+                        root.settings();
+                    }
+                }
+            }
+            if root.closable: Rectangle {
+                width: 32px;
+                height: 28px;
+                y: (parent.height - self.height) / 2;
+                border-radius: Theme.radius-sm;
+                background: close-touch.has-hover ? Theme.surface-muted : transparent;
+                accessible-role: button;
+                accessible-label: @tr("Close");
+                accessible-action-default => {
+                    root.close();
+                }
+                Icon {
+                    width: 16px;
+                    height: 16px;
+                    commands: Icons.close;
+                    color: Theme.text-muted;
+                }
+                close-touch := TouchArea {
+                    clicked => {
+                        root.close();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A small icon button, e.g. "copy" next to a field.
+export component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <color> tint: Theme.text-muted;
+    in property <length> size: 30px;
+    callback clicked();
+    width: size;
+    height: size;
+    border-radius: Theme.radius-sm;
+    background: touch.pressed ? Theme.border : touch.has-hover ? Theme.surface-muted : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => {
+        root.clicked();
+    }
+    Icon {
+        width: 17px;
+        height: 17px;
+        commands: root.icon;
+        color: touch.has-hover ? Theme.text : root.tint;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+        // What the button does, on hover. Inside the TouchArea: a tooltip only sees the
+        // pointer over its parent's children, and the TouchArea would cover a sibling.
+        Tooltip {
+            Rectangle {
+                border-radius: Theme.radius-sm;
+                background: Theme.dark ? #3a3e47 : #2a2d34;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    padding-top: 4px;
+                    padding-bottom: 4px;
+                    Text {
+                        text: root.label;
+                        color: #ffffff;
+                        font-size: Theme.font-small;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component Switch inherits Rectangle {
+    in-out property <bool> checked;
+    in property <string> label;
+    callback toggled(bool);
+    width: 40px;
+    height: 24px;
+    border-radius: 12px;
+    background: checked ? Theme.accent : Theme.border-strong;
+    animate background { duration: 150ms; }
+    accessible-role: switch;
+    accessible-label: root.label;
+    accessible-checked: root.checked;
+    accessible-action-default => {
+        root.checked = !root.checked;
+        root.toggled(root.checked);
+    }
+    Rectangle {
+        x: root.checked ? parent.width - self.width - 3px : 3px;
+        y: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: white;
+        animate x { duration: 150ms; easing: ease-out; }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}
+
+// A row of mutually exclusive choices.
+export component Segmented inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> selected;
+    // Equal segments across the whole width, instead of each as wide as its label.
+    in property <bool> fill;
+    callback chosen(int);
+    height: 32px;
+    border-radius: Theme.radius-sm + 2px;
+    background: Theme.surface-muted;
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 2px;
+        for option[index] in root.options: Rectangle {
+            // Filling, every segment starts from nothing, so all get an equal share.
+            horizontal-stretch: 1;
+            min-width: root.fill ? 0px : label.min-width;
+            preferred-width: root.fill ? 0px : label.preferred-width;
+            border-radius: Theme.radius-sm;
+            background: index == root.selected ? Theme.surface : touch.has-hover ? Theme.border.with-alpha(0.4) : transparent;
+            drop-shadow-blur: index == root.selected ? 2px : 0;
+            drop-shadow-color: #00000022;
+            accessible-role: button;
+            accessible-label: option;
+            accessible-checked: index == root.selected;
+            accessible-action-default => {
+                root.selected = index;
+                root.chosen(index);
+            }
+            label := HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                Text {
+                    text: option;
+                    color: index == root.selected ? Theme.text : Theme.text-muted;
+                    font-size: Theme.font-small + 0.5px;
+                    font-weight: index == root.selected ? 600 : 400;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.selected = index;
+                    root.chosen(index);
+                }
+            }
+        }
+    }
+}
+
+// A transient confirmation at the bottom of a window ("Password copied").
+export component Toast inherits Rectangle {
+    in property <string> text;
+    in property <bool> shown;
+    height: 38px;
+    width: label.preferred-width + 54px;
+    border-radius: 19px;
+    background: Theme.dark ? #f2f4f7 : #1f2329;
+    opacity: shown ? 1 : 0;
+    animate opacity { duration: 160ms; }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 16px;
+        spacing: 8px;
+        Icon {
+            y: (parent.height - self.height) / 2;
+            width: 16px;
+            height: 16px;
+            commands: Icons.check;
+            stroke-width: 2.6px;
+            color: Theme.dark ? #15803d : #4ade80;
+        }
+        label := Text {
+            text: root.text;
+            color: Theme.dark ? #15181d : #ffffff;
+            font-size: Theme.font-body;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export enum ApprovalScope { request, application, terminal }
+
+// How long allowing lasts, and "Approve for all applications" (phase2.md §4.2), like
+// 1Password's SSH agent.
+export component ApprovalOptions inherits VerticalLayout {
+    in property <ApprovalScope> scope;
+    // The application the request runs in, e.g. the terminal.
+    in property <string> app;
+    in-out property <bool> all-applications;
+    spacing: 10px;
+    Text {
+        text: root.all-applications ? @tr("Every application may use it until nibwarden locks.")
+            : root.scope == ApprovalScope.request ? @tr("You will be asked again for every request.")
+            : root.scope == ApprovalScope.terminal
+            ? (root.app != "" ? @tr("Allowed until nibwarden locks, in this terminal tab of {0}.", root.app) : @tr("Allowed until nibwarden locks, in this terminal tab."))
+            : (root.app != "" ? @tr("Allowed until nibwarden locks or {0} quits.", root.app) : @tr("Allowed until nibwarden locks."));
+        color: Theme.text-muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+    }
+    Checkbox {
+        text: @tr("Approve for all applications");
+        checked <=> root.all-applications;
+    }
+}
+
+// A one-time code's time left, as a ring that empties (like authenticator apps).
+export component CountdownRing inherits Rectangle {
+    in property <int> remaining;
+    in property <int> period: 30;
+    property <float> left: max(0.001, min(0.999, root.remaining / max(1, root.period)));
+    property <color> tint: root.remaining <= 5 ? Theme.danger : Theme.accent;
+    property <angle> end: -90deg + root.left * 360deg;
+    width: 32px;
+    height: 32px;
+    accessible-role: progress-indicator;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        stroke: root.tint.with-alpha(0.18);
+        stroke-width: 2.2px;
+        fill: transparent;
+        commands: "M21 12a9 9 0 1 1-18 0 9 9 0 1 1 18 0";
+    }
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        stroke: root.tint;
+        stroke-width: 2.2px;
+        fill: transparent;
+        MoveTo {
+            x: 12;
+            y: 3;
+        }
+        ArcTo {
+            x: 12 + 9 * cos(root.end);
+            y: 12 + 9 * sin(root.end);
+            radius-x: 9;
+            radius-y: 9;
+            sweep: true;
+            large-arc: root.left > 0.5;
+        }
+    }
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.remaining;
+        color: root.remaining <= 5 ? Theme.danger : Theme.text-muted;
+        font-size: 11px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// A whole number picked by dragging; arrow keys step it.
+export component Slider inherits Rectangle {
+    in property <int> minimum;
+    in property <int> maximum;
+    in-out property <int> value;
+    // The user moved it (not when `value` is set from outside).
+    callback moved(int);
+    property <length> thumb: 18px;
+    property <float> fraction: (root.value - root.minimum) / max(1, root.maximum - root.minimum);
+    height: 24px;
+    accessible-role: slider;
+    accessible-value: root.value;
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-value-step: 1;
+    function set(new: int) {
+        let clamped = max(root.minimum, min(root.maximum, new));
+        if (clamped != root.value) {
+            root.value = clamped;
+            root.moved(clamped);
+        }
+    }
+    function set-at(x: length) {
+        root.set(round(root.minimum + clamp((x - root.thumb / 2) / max(1px, root.width - root.thumb), 0, 1) * (root.maximum - root.minimum)));
+    }
+    Rectangle {
+        y: (parent.height - self.height) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.border-strong;
+    }
+    Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: root.fraction * (root.width - root.thumb) + root.thumb / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.accent;
+    }
+    Rectangle {
+        x: root.fraction * (root.width - root.thumb);
+        y: (parent.height - self.height) / 2;
+        width: root.thumb;
+        height: root.thumb;
+        border-radius: root.thumb / 2;
+        background: Theme.surface;
+        border-width: 2px;
+        border-color: focus.has-focus ? Theme.accent-pressed : Theme.accent;
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.LeftArrow || event.text == Key.DownArrow) {
+                root.set(root.value - 1);
+                return accept;
+            }
+            if (event.text == Key.RightArrow || event.text == Key.UpArrow) {
+                root.set(root.value + 1);
+                return accept;
+            }
+            reject
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                focus.focus();
+                root.set-at(self.mouse-x);
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.set-at(self.mouse-x);
+            }
+        }
+    }
+}
+
+// A thin scroll bar over the right edge of a Flickable (a sibling, not a child: children of
+// a Flickable scroll with it). Shown only when there is more than fits; the thumb can be
+// dragged, and a click on the track pages towards it.
+export component ScrollBar inherits Rectangle {
+    // The Flickable's viewport-height and height.
+    in property <length> content;
+    in property <length> view;
+    // The Flickable's viewport-y: 0 at the top, negative further down.
+    in-out property <length> offset;
+    property <length> range: max(0px, root.content - root.view);
+    property <length> thumb-height: max(28px, root.height * root.view / max(1px, root.content));
+    property <length> travel: root.height - root.thumb-height;
+    property <length> drag-start;
+    property <bool> active: touch.has-hover || touch.pressed;
+    width: 12px;
+    visible: root.range > 0;
+    function scroll-to(offset: length) {
+        root.offset = min(0px, max(-root.range, offset));
+    }
+    thumb := Rectangle {
+        x: parent.width - self.width - 3px;
+        y: root.travel > 0 ? -root.offset / root.range * root.travel : 0px;
+        width: root.active ? 7px : 5px;
+        height: root.thumb-height;
+        border-radius: self.width / 2;
+        background: Theme.text-faint.with-alpha(root.active ? 0.75 : 0.45);
+        animate width, background { duration: 120ms; }
+    }
+    touch := TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.drag-start = root.offset;
+                if (self.mouse-y < thumb.y) {
+                    root.scroll-to(root.offset + root.view);
+                    root.drag-start = root.offset;
+                } else if (self.mouse-y > thumb.y + thumb.height) {
+                    root.scroll-to(root.offset - root.view);
+                    root.drag-start = root.offset;
+                }
+            }
+        }
+        moved => {
+            if (self.pressed && root.travel > 0) {
+                root.scroll-to(root.drag-start - (self.mouse-y - self.pressed-y) / root.travel * root.range);
+            }
+        }
+    }
+}

@@ -1,0 +1,27 @@
+.TH NIBWARDEN\-SSH\-SIGN 1 2026-11-06 "nibwarden" "User Commands"
+.SH NAME
+nibwarden\-ssh\-sign \- sign git commits with an SSH key from the nibwarden vault
+.SH SYNOPSIS
+.B nibwarden\-ssh\-sign
+.I ssh\-keygen\-arguments
+.SH DESCRIPTION
+git runs
+.B nibwarden\-ssh\-sign
+as its
+.B gpg.ssh.program
+after
+.BR "nibwarden ssh git\-setup" .
+It runs
+.BR ssh\-keygen (1)
+with the same arguments, pointed at nibwarden's SSH agent, whatever agent the rest of
+the session uses.
+.PP
+Before signing it makes sure the vault is unlocked, asking for the master password
+on the terminal when there is one; every signature is approved in a window
+(or, without one, after
+.BR "nibwarden ssh authorize" ).
+Verifying needs no vault.
+.SH SEE ALSO
+.BR nibwarden (1),
+.BR ssh\-keygen (1),
+.BR git\-config (1)

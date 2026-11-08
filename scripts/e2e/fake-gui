@@ -1,0 +1,49 @@
+#!/usr/bin/env -S python3 -I
+"""Stands in for `nibwarden-gui prompt` in scripts/e2e.sh: speaks the prompt protocol
+(phase2.md §5.2) on stdin/stdout, logs every prompt to $NW_FAKE_GUI_DIR/log and answers
+from $NW_FAKE_GUI_DIR/answers, one per line: `password <text> [remember]`, `allow
+[remember]` (remember = "approve for all applications"), `cancel`, or `wait` (answer nothing until the next prompt, e.g. an updated
+waiting list). With no answers left it closes without answering, like a window closed by
+the user."""
+import json
+import os
+import struct
+import sys
+
+state = os.environ["NW_FAKE_GUI_DIR"]
+
+
+def read():
+    head = sys.stdin.buffer.read(4)
+    if len(head) < 4:
+        return None
+    (n,) = struct.unpack(">I", head)
+    return json.loads(sys.stdin.buffer.read(n))
+
+
+def write(message):
+    body = json.dumps(message).encode()
+    sys.stdout.buffer.write(struct.pack(">I", len(body)) + body)
+    sys.stdout.buffer.flush()
+
+
+assert sys.argv[1:] == ["prompt"], sys.argv
+with open(f"{state}/answers") as f:
+    answers = [line.rstrip("\n") for line in f if line.strip()]
+with open(f"{state}/log", "a") as log:
+    while (prompt := read()) is not None:
+        log.write(json.dumps(prompt) + "\n")
+        log.flush()
+        if not answers:
+            break
+        answer = answers.pop(0)
+        if answer == "wait":
+            continue
+        words = answer.split(" ")
+        remember = words[-1] == "remember"
+        if answer == "cancel":
+            write({"answer": "cancel"})
+        elif words[0] == "allow":
+            write({"answer": "allow", "all_applications": remember})
+        else:
+            write({"answer": "password", "password": words[1], "all_applications": remember})

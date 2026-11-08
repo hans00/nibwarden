@@ -1,0 +1,256 @@
+// The password generator (phase2.md P2-M11): from the edit form's password field, or on
+// its own from the main window. Options change the value right away, as in Bitwarden.
+import { Theme } from "theme.slint";
+import { Button, Checkbox, IconButton, Icons, Slider } from "components.slint";
+import { FormField } from "editor.slint";
+import { Vault } from "vault.slint";
+
+// Password or passphrase, as two tabs.
+component Tab inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked();
+    height: 30px;
+    border-radius: Theme.radius-sm;
+    background: root.selected ? Theme.surface : touch.has-hover ? Theme.surface-muted : transparent;
+    drop-shadow-blur: root.selected ? 3px : 0;
+    drop-shadow-color: #00000022;
+    accessible-role: tab;
+    accessible-label: root.text;
+    accessible-item-selected: root.selected;
+    Text {
+        text: root.text;
+        color: root.selected ? Theme.text : Theme.text-muted;
+        font-size: Theme.font-body;
+        font-weight: root.selected ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A slider with its label and current value.
+component Amount inherits VerticalLayout {
+    in property <string> label;
+    in property <int> minimum;
+    in property <int> maximum;
+    in-out property <int> value;
+    callback moved();
+    spacing: 4px;
+    HorizontalLayout {
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            color: Theme.text;
+            font-size: Theme.font-body;
+        }
+        Text {
+            text: root.value;
+            color: Theme.text;
+            font-size: Theme.font-body;
+            font-weight: 600;
+        }
+    }
+    Slider {
+        minimum: root.minimum;
+        maximum: root.maximum;
+        value <=> root.value;
+        moved => {
+            root.moved();
+        }
+    }
+}
+
+export component GeneratorDialog inherits Rectangle {
+    property <bool> no-characters: !Vault.gen-passphrase && !Vault.gen-upper && !Vault.gen-lower && !Vault.gen-numbers && !Vault.gen-special;
+    width: 460px;
+    height: dialog.preferred-height;
+    border-radius: Theme.radius-lg;
+    background: Theme.window;
+    border-width: 1px;
+    border-color: Theme.border;
+    drop-shadow-blur: 24px;
+    drop-shadow-color: #00000055;
+    dialog := VerticalLayout {
+        padding: 24px;
+        spacing: 14px;
+        Text {
+            text: @tr("Password generator");
+            color: Theme.text;
+            font-size: Theme.font-title - 2px;
+            font-weight: 700;
+        }
+        // The value, with "again" and "copy".
+        Rectangle {
+            border-radius: Theme.radius;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+            HorizontalLayout {
+                padding: 12px;
+                padding-right: 6px;
+                spacing: 4px;
+                cross-axis-alignment: center;
+                Text {
+                    horizontal-stretch: 1;
+                    text: Vault.gen-value;
+                    color: Theme.text;
+                    font-family: "monospace";
+                    font-size: 16px;
+                    wrap: char-wrap;
+                    accessible-label: @tr("Generated password");
+                }
+                IconButton {
+                    icon: Icons.refresh;
+                    label: @tr("Generate again");
+                    clicked => {
+                        Vault.gen-refresh();
+                    }
+                }
+                IconButton {
+                    icon: Icons.copy;
+                    label: @tr("Copy");
+                    clicked => {
+                        Vault.gen-copy();
+                    }
+                }
+            }
+        }
+        Rectangle {
+            height: 36px;
+            border-radius: Theme.radius-sm + 2px;
+            background: Theme.surface-muted;
+            HorizontalLayout {
+                padding: 3px;
+                spacing: 3px;
+                Tab {
+                    text: @tr("Password");
+                    selected: !Vault.gen-passphrase;
+                    clicked => {
+                        Vault.gen-passphrase = false;
+                        Vault.gen-refresh();
+                    }
+                }
+                Tab {
+                    text: @tr("Passphrase");
+                    selected: Vault.gen-passphrase;
+                    clicked => {
+                        Vault.gen-passphrase = true;
+                        Vault.gen-refresh();
+                    }
+                }
+            }
+        }
+        if !Vault.gen-passphrase: VerticalLayout {
+            spacing: 10px;
+            Amount {
+                label: @tr("Length");
+                minimum: 5;
+                maximum: 128;
+                value <=> Vault.gen-length;
+                moved => {
+                    Vault.gen-refresh();
+                }
+            }
+            Checkbox {
+                text: "A-Z";
+                checked <=> Vault.gen-upper;
+                changed checked => {
+                    Vault.gen-refresh();
+                }
+            }
+            Checkbox {
+                text: "a-z";
+                checked <=> Vault.gen-lower;
+                changed checked => {
+                    Vault.gen-refresh();
+                }
+            }
+            Checkbox {
+                text: "0-9";
+                checked <=> Vault.gen-numbers;
+                changed checked => {
+                    Vault.gen-refresh();
+                }
+            }
+            Checkbox {
+                text: "!@#$%^&*";
+                checked <=> Vault.gen-special;
+                changed checked => {
+                    Vault.gen-refresh();
+                }
+            }
+            Checkbox {
+                text: @tr("Avoid ambiguous characters");
+                checked <=> Vault.gen-avoid-ambiguous;
+                changed checked => {
+                    Vault.gen-refresh();
+                }
+            }
+        }
+        if Vault.gen-passphrase: VerticalLayout {
+            spacing: 10px;
+            Amount {
+                label: @tr("Number of words");
+                minimum: 3;
+                maximum: 20;
+                value <=> Vault.gen-words;
+                moved => {
+                    Vault.gen-refresh();
+                }
+            }
+            FormField {
+                label: @tr("Word separator");
+                value: Vault.gen-separator;
+                edited(text) => {
+                    Vault.gen-separator = text;
+                    Vault.gen-refresh();
+                }
+            }
+            Checkbox {
+                text: @tr("Capitalize");
+                checked <=> Vault.gen-capitalize;
+                changed checked => {
+                    Vault.gen-refresh();
+                }
+            }
+            Checkbox {
+                text: @tr("Include number");
+                checked <=> Vault.gen-include-number;
+                changed checked => {
+                    Vault.gen-refresh();
+                }
+            }
+        }
+        if no-characters || Vault.gen-error != "": Text {
+            text: no-characters ? @tr("Choose at least one kind of character.") : Vault.gen-error;
+            color: Theme.danger;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            padding-top: 6px;
+            spacing: 10px;
+            alignment: end;
+            Button {
+                text: Vault.gen-target >= 0 ? @tr("Cancel") : @tr("Close");
+                clicked => {
+                    Vault.gen-open = false;
+                }
+            }
+            if Vault.gen-target >= 0: Button {
+                text: Vault.gen-passphrase ? @tr("Use passphrase") : @tr("Use password");
+                primary: true;
+                enabled: Vault.gen-value != "";
+                clicked => {
+                    Vault.gen-use();
+                }
+            }
+        }
+    }
+}

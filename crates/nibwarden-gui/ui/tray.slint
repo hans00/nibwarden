@@ -1,0 +1,15 @@
+// The tray icon's texts (phase2.md P2-M8). The menu itself is drawn by the desktop; this
+// window is never shown and exists so the texts go through the same translations.
+export component TrayText inherits Window {
+    out property <string> name: "nibwarden";
+    out property <string> locked: @tr("Locked");
+    out property <string> unlocked: @tr("Unlocked");
+    out property <string> logged-out: @tr("Not signed in");
+    out property <string> not-running: @tr("nibwarden is not running");
+    out property <string> open: @tr("Open nibwarden");
+    out property <string> quick: @tr("Quick access");
+    out property <string> lock: @tr("Lock");
+    out property <string> unlock: @tr("Unlock…");
+    out property <string> settings: @tr("Settings…");
+    out property <string> quit: @tr("Quit");
+}

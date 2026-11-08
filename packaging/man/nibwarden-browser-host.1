@@ -1,0 +1,27 @@
+.TH NIBWARDEN\-BROWSER\-HOST 1 2026-11-08 "nibwarden" "User Commands"
+.SH NAME
+nibwarden\-browser\-host \- let the Bitwarden browser extension unlock with nibwarden
+.SH SYNOPSIS
+.B nibwarden\-browser\-host
+.RI [ browser\-arguments ]
+.SH DESCRIPTION
+The browser starts
+.B nibwarden\-browser\-host
+when the official Bitwarden extension connects to the native messaging host
+.BR com.8bit.bitwarden ,
+in place of Bitwarden's desktop app, after
+.BR "nibwarden browser enable" .
+It passes the extension's messages to
+.BR nibwardend (1)
+and writes back its answers.
+.PP
+With "Unlock with biometrics" turned on in the extension, unlocking the extension asks
+in nibwarden's window, every time; when nibwarden is locked, entering the master
+password there unlocks both.
+The extension then receives the vault's key, as it would from Bitwarden's desktop app.
+nibwarden must be logged in to the same account as the extension.
+.PP
+It is not meant to be run by hand.
+.SH SEE ALSO
+.BR nibwarden (1),
+.BR nibwardend (1)

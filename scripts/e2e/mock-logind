@@ -1,0 +1,85 @@
+#!/usr/bin/env -S python3 -I
+"""Mock systemd-logind for scripts/e2e.sh, on a private bus (DBUS_SYSTEM_BUS_ADDRESS):
+just enough for nibwardend's session events (phase2.md §4.3). The test triggers signals
+with the extra method test.Control.Emit on /org/freedesktop/login1:
+
+    lock          Session.Lock on the user's session
+    hint          PropertiesChanged LockedHint=true on the user's session
+    sleep         Manager.PrepareForSleep(true)
+    foreign-lock  Session.Lock on a session of another user (must be ignored)
+"""
+import os
+
+from gi.repository import Gio, GLib
+
+ROOT = "/org/freedesktop/login1"
+MINE = f"{ROOT}/session/c1"
+OTHER = f"{ROOT}/session/c2"
+USER = f"{ROOT}/user/_{os.getuid()}"
+
+XML = """<node>
+  <interface name="org.freedesktop.login1.User">
+    <property name="Sessions" type="a(so)" access="read"/>
+  </interface>
+  <interface name="org.freedesktop.login1.Session">
+    <signal name="Lock"/>
+    <property name="LockedHint" type="b" access="read"/>
+  </interface>
+  <interface name="org.freedesktop.login1.Manager">
+    <signal name="PrepareForSleep"><arg type="b"/></signal>
+  </interface>
+  <interface name="test.Control">
+    <method name="Emit"><arg type="s" direction="in"/></method>
+  </interface>
+</node>"""
+node = Gio.DBusNodeInfo.new_for_xml(XML)
+iface = {i.name: i for i in node.interfaces}
+
+
+def emit(conn, kind):
+    if kind in ("lock", "foreign-lock"):
+        path = MINE if kind == "lock" else OTHER
+        conn.emit_signal(None, path, "org.freedesktop.login1.Session", "Lock", None)
+    elif kind == "hint":
+        changed = GLib.Variant(
+            "(sa{sv}as)",
+            ("org.freedesktop.login1.Session", {"LockedHint": GLib.Variant("b", True)}, []),
+        )
+        conn.emit_signal(None, MINE, "org.freedesktop.DBus.Properties", "PropertiesChanged", changed)
+    elif kind == "sleep":
+        conn.emit_signal(None, ROOT, "org.freedesktop.login1.Manager", "PrepareForSleep",
+                         GLib.Variant("(b)", (True,)))
+
+
+def on_call(conn, sender, path, interface, method, params, invocation):
+    emit(conn, params.unpack()[0])
+    invocation.return_value(None)
+
+
+def on_get(conn, sender, path, interface, prop):
+    if prop == "Sessions":
+        return GLib.Variant("a(so)", [("c1", MINE)])
+    if prop == "LockedHint":
+        return GLib.Variant("b", False)
+    return None
+
+
+def on_bus(conn, name):
+    conn.register_object(USER, iface["org.freedesktop.login1.User"], None, on_get, None)
+    for path in (MINE, OTHER):
+        conn.register_object(path, iface["org.freedesktop.login1.Session"], None, on_get, None)
+    conn.register_object(ROOT, iface["org.freedesktop.login1.Manager"], None, None, None)
+    conn.register_object(ROOT, iface["test.Control"], on_call, None, None)
+
+
+bus = Gio.DBusConnection.new_for_address_sync(
+    os.environ["DBUS_SYSTEM_BUS_ADDRESS"],
+    Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
+    None,
+    None,
+)
+on_bus(bus, None)
+bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+              "RequestName", GLib.Variant("(su)", ("org.freedesktop.login1", 0)),
+              None, Gio.DBusCallFlags.NONE, -1, None)
+GLib.MainLoop().run()

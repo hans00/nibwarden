@@ -1,0 +1,64 @@
+name: Release
+
+# Pushing a tag v<version> (the workspace version) builds the packages and publishes them
+# as a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  dist:
+    name: Packages (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          # The oldest supported Ubuntu, so the packages run on systems with its glibc
+          # and newer.
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libfontconfig-dev libfreetype-dev
+      - name: Version matches the tag
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "v$version" = "$GITHUB_REF_NAME"
+      - run: cargo xtask dist
+      # The source tarball and PKGBUILD are the same on both; keep x86_64's.
+      - if: matrix.arch != 'x86_64'
+        run: rm target/dist/nibwarden-*[0-9].tar.gz target/dist/PKGBUILD
+      - run: rm target/dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.arch }}
+          path: target/dist/*
+
+  release:
+    name: GitHub release
+    needs: dist
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "nibwarden $GITHUB_REF_NAME" --generate-notes --draft
