@@ -5167,6 +5167,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "nibwarden-config",
  "nibwarden-ipc",
  "nibwarden-platform",
  "serde",

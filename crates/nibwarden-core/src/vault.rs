@@ -206,7 +206,7 @@ impl Account {
                 }
             })
             .collect();
-        items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        items.sort_by_key(|a| a.name.to_lowercase());
         Ok(items)
     }
 

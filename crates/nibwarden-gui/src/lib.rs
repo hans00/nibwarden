@@ -5,6 +5,7 @@ slint::include_modules!();
 
 mod account;
 pub mod appearance;
+mod developer;
 mod editor;
 pub mod prompt;
 pub mod quick;

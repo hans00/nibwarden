@@ -81,8 +81,7 @@ nibwarden get GitHub -f totp
 
 也可以從應用程式選單開啟 **nibwarden**，在視窗裡登入。
 
-- **SSH**：把 `SSH_AUTH_SOCK` 指向 `$XDG_RUNTIME_DIR/nibwarden/ssh-agent.sock`，例如把 `/usr/share/doc/nibwarden/examples/60-nibwarden-ssh-agent.conf` 複製到 `~/.config/environment.d/` 後重新登入。
-- **git 簽章**：`nibwarden ssh git-setup --global`。
+- **SSH 與 git 簽章**：設定 → SSH 與 Git：「使用 SSH agent」讓 ssh 使用 nibwarden 的 agent（寫入 `~/.ssh/config`），「用 SSH 金鑰簽署 git commit」設定 git。終端機也可以：`nibwarden ssh agent-setup`、`nibwarden ssh git-setup --global`。只看 `SSH_AUTH_SOCK` 的程式（例如 `ssh-add`）可以把 `/usr/share/doc/nibwarden/examples/60-nibwarden-ssh-agent.conf` 放進 `~/.config/environment.d/`。
 - **快速存取快捷鍵**：設定 → 快速存取 → 設定（GNOME），或自行把 `nibwarden-gui quick` 綁到按鍵。
 - **瀏覽器擴充套件**：設定 → 瀏覽器，或 `nibwarden browser enable`；接著在擴充套件的設定中開啟生物辨識解鎖（英文介面為 "Unlock with biometrics"）。
 

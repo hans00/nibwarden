@@ -111,10 +111,12 @@ nibwarden get GitHub -f totp
 
 Or open **nibwarden** from your applications menu and sign in there.
 
-- **SSH**: point `SSH_AUTH_SOCK` at `$XDG_RUNTIME_DIR/nibwarden/ssh-agent.sock`, for
-  example by copying `/usr/share/doc/nibwarden/examples/60-nibwarden-ssh-agent.conf` to
-  `~/.config/environment.d/` and logging in again.
-- **git signing**: `nibwarden ssh git-setup --global`.
+- **SSH and git signing**: Settings → SSH and Git: "Use the SSH agent" points ssh at
+  nibwarden's agent (`~/.ssh/config`), "Sign git commits with an SSH key" sets up git.
+  The same from a terminal: `nibwarden ssh agent-setup`, `nibwarden ssh git-setup --global`.
+  Programs that read `SSH_AUTH_SOCK` instead (e.g. `ssh-add`) can use
+  `/usr/share/doc/nibwarden/examples/60-nibwarden-ssh-agent.conf` in
+  `~/.config/environment.d/`.
 - **Quick access shortcut**: Settings → Quick access → Set up (GNOME), or bind
   `nibwarden-gui quick` to a key yourself.
 - **Browser extension**: Settings → Browser, or `nibwarden browser enable`; then turn on

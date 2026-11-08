@@ -401,6 +401,12 @@ expect_eq "still locked after cancel" "$(nw status --json | jq -r .state)" locke
 gui_answers "password $MASTER"
 nw unlock --gui 2>/dev/null && ok "unlock window again" || fail "unlock --gui after cancel"
 
+nw lock 2>/dev/null
+gui_answers "password $MASTER"
+script -qec "$N unlock" /dev/null >/dev/null 2>&1 </dev/null || fail "unlock on a desktop"
+expect_eq "unlock on a desktop asks in the window, even from a terminal" \
+    "$(nw status --json | jq -r .state) $(gui_log '[.[].kind] | join(",")' | jq -r .)" "unlocked unlock"
+
 # --- confirmation before use (fake GUI) ---
 gui_answers cancel
 expect_fail "read denied in the window" 1 "denied" -- nw get GitHub
@@ -499,6 +505,28 @@ expect_eq "extension of another account" "$(extension --user-id 00000000-0000-40
     "connected setup: wrongUserId "
 expect_eq "... no window" "$(gui_log length)" 0
 rm "$TMP/gui/answers"
+
+# --- ssh and git set up as the settings window does (SSH and Git) ---
+SC=$BH/.ssh/config
+mkdir -p "$BH/.ssh"
+printf 'Host work\n    IdentityAgent /tmp/other.sock\n' >"$SC"
+SOCK=$(nw status --json | jq -r .ssh_agent_socket)
+HOME=$BH nw ssh agent-setup 2>/dev/null && HOME=$BH nw ssh agent-setup 2>/dev/null || fail "agent-setup"
+agent_for() { ssh -G -F "$SC" "$1" | awk '/^identityagent /{print $2}'; }
+expect_eq "agent-setup: ssh uses nibwarden's agent" "$(agent_for example.com)" "$SOCK"
+expect_eq "... hosts with their own agent keep it" "$(agent_for work)" /tmp/other.sock
+expect_eq "... one block, however often" "$(grep -c IdentityAgent "$SC")" 2
+HOME=$BH nw ssh agent-setup --remove 2>/dev/null
+expect_eq "agent-setup --remove restores the file" "$(cat "$SC")" "$(printf 'Host work\n    IdentityAgent /tmp/other.sock')"
+nw ssh git-setup --global --key 'ssh ed25519' 2>/dev/null || fail "git-setup --global"
+expect_eq "git-setup --global" "$(git config --global gpg.format) $(git config --global commit.gpgsign)" "ssh true"
+GIT_CONFIG_GLOBAL=$TMP/gitconfig-noemail nw ssh git-setup --global --key 'ssh ed25519' 2>/dev/null \
+    || fail "git-setup without user.email"
+expect_eq "git-setup needs no user.email" \
+    "$(GIT_CONFIG_GLOBAL=$TMP/gitconfig-noemail git config --global --get-regexp '^(gpg|commit)\.' | cut -d' ' -f1 | sort | paste -sd ' ')" \
+    "commit.gpgsign gpg.format gpg.ssh.program"
+nw ssh git-setup --remove 2>/dev/null || fail "git-setup --remove"
+expect_eq "git-setup --remove" "$(git config --global gpg.format || echo unset)" unset
 
 # --- changing items (P2-M10): any program but nibwarden's own window is asked every time ---
 I=scripts/e2e/ipc

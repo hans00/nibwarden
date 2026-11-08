@@ -2,6 +2,7 @@
 // daemon is asked to reload it; there is no Save button.
 import { Theme } from "theme.slint";
 import { Button, ScrollBar, Segmented, Switch, TitleBar, WindowCard } from "components.slint";
+import { Picker } from "editor.slint";
 
 component Section inherits VerticalLayout {
     in property <string> title;
@@ -92,6 +93,14 @@ export component SettingsWindow inherits Window {
     // another program (Bitwarden's desktop app) is registered instead.
     in-out property <bool> browser;
     in property <string> browser-others;
+    // ssh uses nibwarden's agent; `ssh-other-agent`: an IdentityAgent of the user's own in
+    // ~/.ssh/config, which still applies to its hosts.
+    in-out property <bool> ssh-agent;
+    in property <string> ssh-other-agent;
+    // git signs commits with the vault key `ssh-keys[signing-key]`.
+    in-out property <bool> git-signing;
+    in property <[string]> ssh-keys;
+    in-out property <int> signing-key;
     in property <string> shortcut-status;
     // Problems saving, shown at the bottom.
     in property <string> error;
@@ -110,6 +119,9 @@ export component SettingsWindow inherits Window {
     callback install-shortcut();
     callback tray-changed(bool);
     callback browser-changed(bool);
+    callback ssh-agent-changed(bool);
+    callback git-signing-changed(bool);
+    callback signing-key-chosen(int);
     callback close-requested();
 
 
@@ -308,6 +320,43 @@ export component SettingsWindow inherits Window {
                                         text: @tr("Set up");
                                         clicked => {
                                             root.install-shortcut();
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
+                                title: @tr("SSH and Git");
+                                SettingRow {
+                                    first: true;
+                                    label: @tr("Use the SSH agent");
+                                    detail: root.ssh-agent && root.ssh-other-agent != "" ? @tr("Hosts with their own IdentityAgent in ~/.ssh/config keep it.") : "";
+                                    Switch {
+                                        label: @tr("Use the SSH agent");
+                                        checked <=> root.ssh-agent;
+                                        toggled(on) => {
+                                            root.ssh-agent-changed(on);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    label: @tr("Sign git commits with an SSH key");
+                                    Switch {
+                                        label: @tr("Sign git commits with an SSH key");
+                                        checked <=> root.git-signing;
+                                        toggled(on) => {
+                                            root.git-signing-changed(on);
+                                        }
+                                    }
+                                }
+                                if root.git-signing && root.ssh-keys.length > 1: SettingRow {
+                                    label: @tr("Signing key");
+                                    Picker {
+                                        width: 240px;
+                                        options: root.ssh-keys;
+                                        current: root.signing-key;
+                                        chosen(index) => {
+                                            root.signing-key-chosen(index);
                                         }
                                     }
                                 }

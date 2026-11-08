@@ -27,6 +27,8 @@
 //! enabled = false       # show an icon in the system tray, started at login
 //! ```
 
+pub mod integration;
+
 use std::path::PathBuf;
 
 use serde::Deserialize;

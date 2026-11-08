@@ -24,6 +24,7 @@ path = "src/bin/browser_host.rs"
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
+nibwarden-config = { workspace = true }
 nibwarden-ipc = { workspace = true }
 nibwarden-platform = { workspace = true }
 serde = { workspace = true }

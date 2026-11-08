@@ -47,21 +47,24 @@ pub async fn connect(socket: Option<&Path>, name: &str) -> Result<Client> {
 }
 
 /// Calls a method that needs the unlocked vault. If the vault is locked, the request is
-/// sent again with the master password from the terminal if there is one (this also works
-/// over SSH), otherwise asking the daemon to show its window; either way one prompt both
-/// unlocks and allows the request (phase2.md §5.3).
+/// sent again asking the daemon to unlock in its window; where no window can be shown (no
+/// desktop, or over SSH), with the master password from the terminal if there is one.
+/// Either way one prompt both unlocks and allows the request (phase2.md §5.3).
 pub async fn call_vault<T: DeserializeOwned>(client: &mut Client, request: Request) -> Result<T> {
     match client.call(request.clone()).await {
         Err(ClientError::Remote(e)) if e.code == ErrorCode::Locked => {
-            if terminal::available() {
-                let password = terminal::read_password("Vault is locked. Master password: ")?;
-                let unlock = UnlockWith::Password { password };
-                return Ok(client.call_unlocking(request, unlock).await?);
-            }
-            match client.call_unlocking(request, UnlockWith::Window).await {
-                // No window possible (no desktop, remote session): keep the plain
-                // `locked` error and its exit code.
+            match client
+                .call_unlocking(request.clone(), UnlockWith::Window)
+                .await
+            {
                 Err(ClientError::Remote(why)) if why.code == ErrorCode::Unavailable => {
+                    if terminal::available() {
+                        let password =
+                            terminal::read_password("Vault is locked. Master password: ")?;
+                        let unlock = UnlockWith::Password { password };
+                        return Ok(client.call_unlocking(request, unlock).await?);
+                    }
+                    // Neither: keep the plain `locked` error and its exit code.
                     Err(ClientError::Remote(e))
                         .context("run `nibwarden unlock` in a terminal first")
                 }

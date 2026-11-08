@@ -1,6 +1,6 @@
 [package]
 name = "nibwarden-config"
-description = "User settings in config.toml, shared by nibwardend, the CLI and the GUI."
+description = "User settings in config.toml, and what nibwarden writes into ssh's and git's; shared by nibwardend, the CLI and the GUI."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

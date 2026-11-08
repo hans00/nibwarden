@@ -16,9 +16,9 @@ The daemon is started on demand through the systemd user unit
 .BR nibwardend.service .
 .PP
 Commands that read secrets need the vault unlocked.
-When it is locked,
+When it is locked, the daemon shows its unlock window, or where no window can be shown,
 .B nibwarden
-asks for the master password on the terminal, or the daemon shows its unlock window.
+asks for the master password on the terminal.
 Programs other than nibwarden's own windows may have to be approved in a window first
 (see
 .B [approval]
@@ -41,8 +41,10 @@ Two-step login asks for the code on the terminal.
 .B logout
 Log out, and delete the local session and the encrypted vault cache.
 .TP
-.B unlock \fR[\fB\-\-password\-stdin\fR | \fB\-\-gui\fR]
-Unlock with the master password, read from the terminal, from stdin, or in the unlock window.
+.B unlock \fR[\fB\-\-password\-stdin\fR | \fB\-\-gui\fR | \fB\-\-terminal\fR]
+Unlock with the master password: in the unlock window when one can be shown (a desktop
+session, not over SSH), otherwise on the terminal.
+\fB\-\-gui\fR and \fB\-\-terminal\fR choose one; \fB\-\-password\-stdin\fR reads it from stdin.
 .TP
 .B lock
 Lock now.
@@ -86,18 +88,6 @@ Print a new password: \fB\-l\fR|\fB\-\-length\fR \fIn\fR (20), \fB\-\-special\fR
 \fB\-\-avoid\-ambiguous\fR.
 With \fB\-\-passphrase\fR, a passphrase: \fB\-\-words\fR \fIn\fR (5),
 \fB\-\-separator\fR \fIs\fR (\-), \fB\-\-capitalize\fR, \fB\-\-include\-number\fR.
-.SS Windows
-.TP
-.B open
-Open the main window.
-.TP
-.B quick \fR[\fB\-\-install\-shortcut\fR [\fB\-\-binding\fR \fIaccelerator\fR]]
-Open quick access: search the vault and copy a field.
-With \fB\-\-install\-shortcut\fR, add a GNOME keyboard shortcut that opens it instead
-(default \fB<Control><Shift>space\fR).
-.TP
-.B settings
-Open the settings window.
 .SS SSH and git
 .TP
 .B ssh list \fR[\fB\-\-json\fR]
@@ -108,9 +98,25 @@ Allow SSH signatures from this terminal session with the master password,
 for when no approval window can be shown (for example over SSH).
 Lasts until the vault locks.
 .TP
-.B ssh git\-setup \fR[\fB\-\-key\fR \fIname\fR] [\fB\-\-global\fR]
+.B ssh agent\-setup \fR[\fB\-\-remove\fR]
+Make
+.BR ssh (1)
+use nibwarden's agent: adds a
+.B Host *
+block with
+.B IdentityAgent
+at the end of
+.IR ~/.ssh/config ,
+so hosts with an agent of their own keep it.
+\fB\-\-remove\fR takes the block out again.
+The settings window does the same.
+.TP
+.B ssh git\-setup \fR[\fB\-\-key\fR \fIname\fR] [\fB\-\-global\fR] | \fB\-\-remove\fR
 Make git sign commits with an SSH key from the vault, through
 .BR nibwarden\-ssh\-sign (1).
+\fB\-\-remove\fR stops that in the global git config (the allowed signers stay, so
+earlier commits still verify).
+The settings window does the same for the global git config.
 .SS Browser extension
 .TP
 .B browser enable \fR[\fB\-\-replace\fR]

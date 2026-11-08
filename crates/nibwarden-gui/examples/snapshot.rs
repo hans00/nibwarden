@@ -589,6 +589,12 @@ fn main() {
             ui.set_allow_without_window(true);
             ui.set_browser(true);
             ui.set_browser_others("Google Chrome".into());
+            ui.set_ssh_agent(true);
+            ui.set_git_signing(true);
+            ui.set_ssh_keys(slint::ModelRc::new(slint::VecModel::from(vec![
+                slint::SharedString::from("Work laptop"),
+                "GitHub".into(),
+            ])));
             render(&window, &ui, 664.0, |_| 724.0, &name("settings"));
             // Scrolled to the end, with the wheel.
             window.dispatch_event(WindowEvent::PointerScrolled {

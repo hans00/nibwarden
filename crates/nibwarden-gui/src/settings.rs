@@ -48,6 +48,8 @@ pub fn run() -> ExitCode {
     prompt::apply_appearance(&ui, &config.appearance);
     show(&ui, &config);
     connect(&ui);
+    crate::developer::show(&ui);
+    crate::developer::connect(&ui);
     // Follow theme and language changes made in the settings window.
     let _follow = {
         let weak = ui.as_weak();

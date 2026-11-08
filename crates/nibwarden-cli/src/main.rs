@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     ffi::OsString,
     io::{BufRead as _, IsTerminal as _, Write as _},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::ExitCode,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -58,13 +58,19 @@ enum Command {
     /// Log out and delete the local session and vault cache.
     Logout,
     /// Unlock with the master password.
+    ///
+    /// Asks in nibwarden's unlock window when one can be shown (a desktop session, not
+    /// over SSH), otherwise on the terminal.
     Unlock {
-        /// Read the master password from the first line of stdin instead of the terminal.
+        /// Read the master password from the first line of stdin.
         #[arg(long)]
         password_stdin: bool,
-        /// Ask in the daemon's unlock window instead of the terminal.
-        #[arg(long, conflicts_with = "password_stdin")]
+        /// Always ask in the unlock window.
+        #[arg(long, conflicts_with_all = ["password_stdin", "terminal"])]
         gui: bool,
+        /// Always ask on the terminal.
+        #[arg(long, conflicts_with = "password_stdin")]
+        terminal: bool,
     },
     /// Lock now.
     Lock,
@@ -148,23 +154,6 @@ enum Command {
         #[arg(long)]
         include_number: bool,
     },
-    /// Open quick access: search the vault and copy a field (nibwarden-gui).
-    Quick {
-        /// Instead, add a desktop keyboard shortcut that opens it (GNOME).
-        #[arg(long)]
-        install_shortcut: bool,
-        /// The shortcut, in GTK accelerator syntax.
-        #[arg(
-            long,
-            default_value = "<Control><Shift>space",
-            requires = "install_shortcut"
-        )]
-        binding: String,
-    },
-    /// Open the main window: browse the vault and copy from it (nibwarden-gui).
-    Open,
-    /// Open the settings window (nibwarden-gui).
-    Settings,
     /// SSH agent.
     Ssh {
         #[command(subcommand)]
@@ -219,6 +208,12 @@ enum SshCommand {
         #[arg(long)]
         password_stdin: bool,
     },
+    /// Make ssh use nibwarden's agent (an IdentityAgent block in ~/.ssh/config).
+    AgentSetup {
+        /// Remove nibwarden's block instead.
+        #[arg(long)]
+        remove: bool,
+    },
     /// Make git sign commits with a vault SSH key (gpg.format=ssh, commit.gpgsign=true).
     GitSetup {
         /// Key name or id; needed when the vault has more than one SSH key.
@@ -227,6 +222,9 @@ enum SshCommand {
         /// Write the global git config instead of the current repository's.
         #[arg(long)]
         global: bool,
+        /// Stop signing commits through nibwarden (global git config).
+        #[arg(long, conflicts_with_all = ["key", "global"])]
+        remove: bool,
     },
 }
 
@@ -269,19 +267,6 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<()> {
     // Quick access talks to the daemon itself.
-    if let Command::Quick {
-        install_shortcut,
-        binding,
-    } = &cli.command
-    {
-        return quick(*install_shortcut, binding);
-    }
-    if let Command::Settings = &cli.command {
-        return spawn_gui("settings");
-    }
-    if let Command::Open = &cli.command {
-        return spawn_gui("vault");
-    }
     if let Command::Browser { command } = &cli.command {
         return browser(command);
     }
@@ -321,21 +306,32 @@ async fn run(cli: Cli) -> Result<()> {
             client.call::<()>(Request::Logout).await?;
             eprintln!("Logged out.");
         }
-        Command::Unlock { gui: true, .. } => {
-            client.call::<()>(Request::UnlockPrompt).await?;
-            eprintln!("Unlocked.");
-        }
-        Command::Unlock { password_stdin, .. } => {
+        Command::Unlock {
+            password_stdin,
+            gui,
+            terminal,
+        } => {
             let status: StatusResult = client.call(Request::Status).await?;
             match status.state {
                 LockState::LoggedOut => bail!("not logged in; run `nibwarden login` first"),
                 LockState::Unlocked => eprintln!("Already unlocked."),
                 LockState::Locked => {
-                    if let Some(email) = &status.email {
-                        eprintln!("Unlocking {email}");
+                    let window = gui
+                        || (!password_stdin
+                            && !terminal
+                            && client
+                                .call::<nibwarden_ipc::CanPromptResult>(Request::CanPrompt)
+                                .await?
+                                .available);
+                    if window {
+                        client.call::<()>(Request::UnlockPrompt).await?;
+                    } else {
+                        if let Some(email) = &status.email {
+                            eprintln!("Unlocking {email}");
+                        }
+                        let password = read_secret("Master password: ", password_stdin)?;
+                        client.call::<()>(Request::Unlock { password }).await?;
                     }
-                    let password = read_secret("Master password: ", password_stdin)?;
-                    client.call::<()>(Request::Unlock { password }).await?;
                     eprintln!("Unlocked.");
                 }
             }
@@ -443,9 +439,7 @@ async fn run(cli: Cli) -> Result<()> {
             let result: ValueResult = client.call(request).await?;
             print_secret(&result.value, false)?;
         }
-        Command::Quick { .. } | Command::Settings | Command::Open | Command::Browser { .. } => {
-            unreachable!("handled above")
-        }
+        Command::Browser { .. } => unreachable!("handled above"),
         Command::Ssh {
             command: SshCommand::Authorize { password_stdin },
         } => {
@@ -469,8 +463,36 @@ async fn run(cli: Cli) -> Result<()> {
             password_stdin,
         } => transfer::import(&mut client, file, password_stdin).await?,
         Command::Ssh {
-            command: SshCommand::GitSetup { key, global },
+            command: SshCommand::GitSetup { remove: true, .. },
+        } => {
+            nibwarden_config::integration::git::unset_signing()?;
+            eprintln!("git no longer signs commits through nibwarden.");
+        }
+        Command::Ssh {
+            command: SshCommand::GitSetup { key, global, .. },
         } => git_setup(&mut client, key.as_deref(), global).await?,
+        Command::Ssh {
+            command: SshCommand::AgentSetup { remove },
+        } => {
+            use nibwarden_config::integration::ssh;
+            if remove {
+                ssh::set_agent(None)?;
+                eprintln!(
+                    "Removed nibwarden's agent from {}.",
+                    ssh::config_path()?.display()
+                );
+            } else {
+                let status: StatusResult = client.call(Request::Status).await?;
+                let socket = status
+                    .ssh_agent_socket
+                    .context("the SSH agent is disabled in nibwardend")?;
+                ssh::set_agent(Some(std::path::Path::new(&socket)))?;
+                eprintln!("ssh uses {socket} ({}).", ssh::config_path()?.display());
+                if let Some(other) = ssh::other_agent() {
+                    eprintln!("Hosts with their own IdentityAgent keep it (e.g. {other}).");
+                }
+            }
+        }
         Command::Ssh {
             command: SshCommand::List { json },
         } => {
@@ -492,40 +514,6 @@ async fn run(cli: Cli) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// The GUI binary: next to this one, or else from $PATH.
-fn gui_path() -> Result<PathBuf> {
-    let sibling = std::env::current_exe()?.with_file_name("nibwarden-gui");
-    Ok(if sibling.exists() {
-        sibling
-    } else {
-        PathBuf::from("nibwarden-gui")
-    })
-}
-
-fn spawn_gui(mode: &str) -> Result<()> {
-    let gui = gui_path()?;
-    std::process::Command::new(&gui)
-        .arg(mode)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .with_context(|| format!("cannot start {}", gui.display()))?;
-    Ok(())
-}
-
-/// Starts quick access in the background, or installs the shortcut that does.
-fn quick(install_shortcut: bool, binding: &str) -> Result<()> {
-    let gui = gui_path()?;
-    if install_shortcut {
-        let command = format!("{} quick", gui.display());
-        let installed =
-            nibwarden_platform::shortcut::install("nibwarden quick access", &command, binding)?;
-        eprintln!("Added {binding} → {command}\n({})", installed.location);
-        return Ok(());
-    }
-    spawn_gui("quick")
 }
 
 /// Tells the user how to point ssh at the agent if their shell does not already.
@@ -594,73 +582,51 @@ fn browser(command: &BrowserCommand) -> Result<()> {
 }
 
 async fn git_setup(client: &mut Client, wanted: Option<&str>, global: bool) -> Result<()> {
+    use nibwarden_config::integration::git::{self, Scope};
+
     let keys: SshListResult = call_vault(client, Request::SshList).await?;
     let key = pick_key(&keys.keys, wanted)?;
-    let scope = if global {
-        "--global"
-    } else {
-        git(&["rev-parse", "--git-dir"]).context("not in a git repository; use --global")?;
-        "--local"
-    };
-    let email = git(&["config", "user.email"])
-        .ok()
-        .filter(|e| !e.is_empty())
-        .context("git has no user.email; set it first (git config --global user.email …)")?;
-    // "type base64" without the comment, as allowed_signers and key:: expect.
-    let public = key
-        .public_key
-        .split_whitespace()
-        .take(2)
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    let configured = git(&["config", "--path", "gpg.ssh.allowedSignersFile"])
-        .ok()
-        .filter(|p| !p.is_empty());
-    let signers = match &configured {
-        Some(path) => PathBuf::from(path),
-        None => default_allowed_signers()?,
-    };
-    let added = add_allowed_signer(&signers, &email, &public)
-        .with_context(|| format!("cannot update {}", signers.display()))?;
-
+    let scope = if global { Scope::Global } else { Scope::Local };
     // The helper sits next to this binary; fall back to $PATH if it was moved.
     let helper = std::env::current_exe()?.with_file_name("nibwarden-ssh-sign");
     let helper = if helper.exists() {
-        helper.to_string_lossy().into_owned()
+        helper
     } else {
-        "nibwarden-ssh-sign".to_owned()
+        PathBuf::from("nibwarden-ssh-sign")
     };
-    let mut settings = vec![
-        ("gpg.format", "ssh".to_owned()),
-        (
-            "user.signingkey",
-            format!("key::{public} nibwarden:{}", key.name),
-        ),
-        ("gpg.ssh.program", helper),
-        ("commit.gpgsign", "true".to_owned()),
-    ];
-    if configured.is_none() {
-        settings.push((
-            "gpg.ssh.allowedSignersFile",
-            signers.to_string_lossy().into_owned(),
-        ));
-    }
+    let signing = git::set_signing(scope, &key.name, &key.public_key, &helper).map_err(|e| {
+        if scope == Scope::Local && e.to_string() == "not in a git repository" {
+            anyhow!("not in a git repository; use --global")
+        } else {
+            e.into()
+        }
+    })?;
     eprintln!(
         "Signing with \"{}\" ({}). Wrote to the {} git config:",
         key.name,
         key.fingerprint,
-        &scope[2..]
+        if global { "global" } else { "local" }
     );
-    for (name, value) in &settings {
-        git(&["config", scope, name, value])?;
+    for (name, value) in &signing.settings {
         eprintln!("  {name} = {value}");
     }
-    eprintln!(
-        "{} {email} in {}",
-        if added { "Trusted" } else { "Already trusted:" },
-        signers.display()
-    );
+    match &signing.trusted {
+        Some(trusted) => eprintln!(
+            "{} {} in {}",
+            if trusted.added {
+                "Trusted"
+            } else {
+                "Already trusted:"
+            },
+            trusted.email,
+            trusted.signers.display()
+        ),
+        None => eprintln!(
+            "git has no user.email, so the key is not in an allowed signers file: commits are \
+             signed, but `git log --show-signature` cannot verify them here. Run git-setup \
+             again after setting user.email to add it."
+        ),
+    }
     Ok(())
 }
 
@@ -695,60 +661,6 @@ fn pick_key<'a>(keys: &'a [SshKeyEntry], wanted: Option<&str>) -> Result<&'a Ssh
             matches.len()
         ),
     }
-}
-
-/// Runs git in the current directory and returns its trimmed stdout.
-fn git(args: &[&str]) -> Result<String> {
-    let out = std::process::Command::new("git")
-        .args(args)
-        .output()
-        .context("cannot run git")?;
-    if !out.status.success() {
-        bail!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
-}
-
-/// `$XDG_CONFIG_HOME/git/allowed_signers`, next to git's own XDG config file.
-fn default_allowed_signers() -> Result<PathBuf> {
-    let config = match std::env::var_os("XDG_CONFIG_HOME").filter(|d| !d.is_empty()) {
-        Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join(".config"),
-    };
-    Ok(config.join("git/allowed_signers"))
-}
-
-/// Appends `<email> namespaces="git" <key>` unless that pair is already there.
-fn add_allowed_signer(path: &Path, email: &str, public: &str) -> Result<bool> {
-    let existing = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e.into()),
-    };
-    let present = existing
-        .lines()
-        .any(|line| line.split_whitespace().next() == Some(email) && line.contains(public));
-    if present {
-        return Ok(false);
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    let separator = if existing.is_empty() || existing.ends_with('\n') {
-        ""
-    } else {
-        "\n"
-    };
-    writeln!(file, "{separator}{email} namespaces=\"git\" {public}")?;
-    Ok(true)
 }
 
 fn reference_request(reference: &Reference) -> Request {
@@ -1022,25 +934,6 @@ mod tests {
         );
         assert!(parse_env_file("novalue\n").is_err());
         assert!(parse_env_file("BAD KEY=1\n").is_err());
-    }
-
-    #[test]
-    fn allowed_signers_append_once() {
-        let dir = std::env::temp_dir().join(format!("nw-signers-{}", std::process::id()));
-        let path = dir.join("git/allowed_signers");
-        let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDummy";
-        assert!(add_allowed_signer(&path, "a@example.test", key).unwrap());
-        assert!(!add_allowed_signer(&path, "a@example.test", key).unwrap());
-        // Same key for another address, and a file without a trailing newline.
-        std::fs::write(&path, std::fs::read_to_string(&path).unwrap().trim_end()).unwrap();
-        assert!(add_allowed_signer(&path, "b@example.test", key).unwrap());
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            format!(
-                "a@example.test namespaces=\"git\" {key}\nb@example.test namespaces=\"git\" {key}\n"
-            )
-        );
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -1064,3 +1064,18 @@ msgstr "用 nibwarden 解鎖 Bitwarden 瀏覽器擴充套件"
 
 msgid "{0} starts Bitwarden's desktop app instead."
 msgstr "{0} 目前使用的是 Bitwarden 桌面版。"
+
+msgid "SSH and Git"
+msgstr "SSH 與 Git"
+
+msgid "Use the SSH agent"
+msgstr "使用 SSH agent"
+
+msgid "Hosts with their own IdentityAgent in ~/.ssh/config keep it."
+msgstr "~/.ssh/config 裡自行設定 IdentityAgent 的主機維持原設定。"
+
+msgid "Sign git commits with an SSH key"
+msgstr "用 SSH 金鑰簽署 git commit"
+
+msgid "Signing key"
+msgstr "簽署用的金鑰"

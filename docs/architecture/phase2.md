@@ -261,6 +261,7 @@ language = "system"   # "system"（跟隨系統），或語言標籤，例如 "z
 | 剪貼簿 | 自動清除複製的密碼與驗證碼（開關）、清除時間（30 秒到 5 分鐘） | `[clipboard] clear`、`clear_after_seconds` |
 | 使用前確認 | 核准的範圍（單次請求、每個應用程式、每個終端機分頁）、核准的有效時間（直到鎖定、1／4／12 小時；單次請求時不顯示）、程式讀取密碼前詢問、無法顯示視窗時允許讀取秘密 | `[approval] remember`、`remember_hours`、`read_secret`、`without_window` |
 | 快速存取 | 快捷鍵：一鍵寫入 GNOME 自訂快捷鍵 | （桌面設定） |
+| SSH 與 Git | 使用 SSH agent（在 `~/.ssh/config` 結尾加上 nibwarden 的 `Host *`／`IdentityAgent` 區塊，自行指定 agent 的主機維持原設定）、用 SSH 金鑰簽署 git commit（全域 git config，與 `nibwarden ssh git-setup --global` 相同）、簽署用的金鑰（有多把時） | （`~/.ssh/config`、git config） |
 | 瀏覽器 | 用 nibwarden 解鎖 Bitwarden 瀏覽器擴充套件（§5.8）；有瀏覽器登記的是 Bitwarden 桌面版時列出 | （瀏覽器的 native messaging manifest） |
 
 - 開著的其他 nibwarden 視窗每秒檢查一次 `config.toml` 的修改時間，變了就重新套用主題與語言。
@@ -756,6 +757,17 @@ crates/
   - 單元測試：通道兩端的設定與加解密、manifest 的內容與辨認。
   - 截圖：確認視窗（瀏覽器解鎖）、設定視窗的「瀏覽器」。
 - **沒驗證的**：真的瀏覽器與官方擴充套件（Firefox、Chrome）實際操作；Flatpak／Snap 瀏覽器。
+
+### 12.17.1 設定視窗的 SSH 與 Git
+
+- 試用時發現設定視窗沒有 1Password／Bitwarden 那樣「設為 SSH agent」「用來簽 git」的開關，只有 CLI。寫入 `~/.ssh/config` 與 git config 的程式搬到 `nibwarden-config::integration`，CLI 與設定視窗共用。
+- **SSH agent**：仿 1Password，在 `~/.ssh/config` 加上 `Host *` 與 `IdentityAgent "<daemon 回報的 socket 路徑>"`，以註解行標出開頭結尾，關閉時整塊移除。放在檔案結尾：ssh 以第一個取得的值為準，所以使用者替個別主機指定的 agent 仍然有效（視窗只在有這種設定時加一句說明）。寫實際路徑而不是 `${XDG_RUNTIME_DIR}`，因為沒有這個環境變數的工作階段裡 ssh 會直接失敗。檔案不存在時以 0600 建立（ssh 拒絕他人可寫的設定）。CLI：`nibwarden ssh agent-setup [--remove]`。
+- **git 簽章**：開啟時列出 vault 的 SSH 金鑰（上鎖時開解鎖視窗），用目前選的（或第一把）寫入全域 git config；有多把時多一列「簽署用的金鑰」可切換。關閉只移除 nibwarden 自己寫的設定（`user.signingkey` 帶 `nibwarden:` 標記時），allowed signers 保留，舊 commit 仍可驗證。CLI：`nibwarden ssh git-setup --remove`。
+- **不需要 git 的 user.email**：原本 `git-setup` 沒有 `user.email` 就拒絕，因為要把金鑰寫進 allowed signers（以電子郵件對應金鑰，供本機 `git log --show-signature` 驗證）。但簽章本身不需要它，1Password 與 Bitwarden 的設定也只寫 `gpg.format`、`user.signingkey`、`gpg.ssh.program`、`commit.gpgsign`。所以改為：有 `user.email` 才加 allowed signers，沒有就只設定簽章並提示。
+- **CLI 不再負責開視窗**：`nibwarden quick`（含 `--install-shortcut`）、`nibwarden open`、`nibwarden settings` 只是啟動 `nibwarden-gui`，拿掉；視窗從應用程式選單、系統匣、快捷鍵（設定視窗裡設定）或直接 `nibwarden-gui <模式>` 開。`nibwarden unlock --gui` 保留，因為那是請 daemon 開它自己的解鎖視窗。下文提到這三個指令的地方是當時的記錄。
+- **解鎖先用視窗**：`nibwarden unlock` 與遇到上鎖的指令（`get`、`list`…）原本有終端機就在終端機問。改為先問 daemon 能不能開視窗（`CanPrompt`：有圖形工作階段、不是從遠端 SSH 來、有安裝 GUI），能就開解鎖視窗，不能才在終端機問。由 daemon 判斷而不是 CLI 自己看 `DISPLAY`，因為 SSH 的 X forwarding 也會有 `DISPLAY`。`--gui`、`--terminal` 可指定。
+- **GPG**：Bitwarden 的項目沒有 OpenPGP 金鑰，所以沒有 GPG agent；git 以 SSH 簽章取代。
+- **測試**：e2e 新增 8 項（共 177 項）：桌面上從終端機 `nibwarden unlock` 會開視窗；沒有 user.email 也能設定簽章；以 `ssh -G` 確認一般主機用 nibwarden 的 agent、自訂 agent 的主機維持原值、重複執行只有一個區塊、移除後檔案還原；`git-setup --global` 與 `--remove`。
 
 ### 12.18 公開前改用 cargo xtask
 
