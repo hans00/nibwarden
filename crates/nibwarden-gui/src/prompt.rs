@@ -311,11 +311,8 @@ fn unlock_window(
             ui.get_mode() == UnlockMode::UnlockAllow && ui.get_all_applications();
         let _ = tx.send(Answer::System { all_applications });
     };
-    ui.on_system(system.clone());
-    // As Bitwarden does: the system asks right away; cancelling it leaves the field.
-    if ui.get_system_available() {
-        slint::Timer::single_shot(Duration::from_millis(300), system);
-    }
+    // Only on the button: the user picks how to unlock.
+    ui.on_system(system);
     let tx = answers.clone();
     ui.on_cancel(move || {
         let _ = tx.send(Answer::Cancel);

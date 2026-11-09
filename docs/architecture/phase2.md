@@ -781,7 +781,7 @@ crates/
 - **逾時後動作**（`[lock] idle_action`）：鎖定或登出；登出會刪除本機的密碼庫副本。這個沒有 e2e（daemon 每 10 秒檢查一次，最短逾時是 1 分鐘）。
 - **網站圖示**（`[appearance] website_icons`，預設開）：GUI 向 daemon 要（`item.icon`），daemon 從帳號伺服器的圖示服務取（bitwarden.com 為 `icons.bitwarden.net`、bitwarden.eu 為 `icons.bitwarden.eu`、自架為 `<server>/icons`），用沒有登入的 SDK 用戶端，所以 token 不會送到圖示服務；只接受網域名稱字元，256 KiB 上限，記憶體快取。GUI 解碼（PNG、ICO、JPEG）後取代清單與項目標題的首字母頭像。圖示服務會看到網域，所以可以關閉。
 - **PIN 碼解鎖**：SDK 的 `enroll_pin` 給出以 PIN 保護的使用者金鑰（只在記憶體）與以使用者金鑰加密的 PIN（存在資料目錄的 `pin`）；之後以主密碼解鎖時用後者重新產生前者，所以 daemon 重啟後要先用一次主密碼（同 Bitwarden 的「重新啟動時要求主密碼」）。連續 5 次 PIN 錯誤就停用到下次主密碼解鎖。只有 nibwarden 自己的視窗能設定 PIN（否則任何程式都能設一個 PIN 之後自己解鎖）。
-- **系統驗證解鎖**（`[unlock] system`）：以主密碼解鎖後，daemon 在記憶體保留使用者金鑰；上鎖後要解鎖時，以請求的視窗程序為對象向 polkit 要求 `me.hans00.nibwarden.unlock`（`auth_self`），桌面的 polkit agent 顯示密碼或指紋對話框，通過才用保留的金鑰解鎖。polkit 只讀 `/usr/share/polkit-1/actions`，所以需要套件安裝的規則；沒有規則時設定開不起來並說明。解鎖視窗與主視窗在可用時會自動先問一次系統驗證，取消後可以輸入主密碼或 PIN。
+- **系統驗證解鎖**（`[unlock] system`）：以主密碼解鎖後，daemon 在記憶體保留使用者金鑰；上鎖後要解鎖時，以請求的視窗程序為對象向 polkit 要求 `me.hans00.nibwarden.unlock`（`auth_self`），桌面的 polkit agent 顯示密碼或指紋對話框，通過才用保留的金鑰解鎖。polkit 只讀 `/usr/share/polkit-1/actions`，所以需要套件安裝的規則；沒有規則時設定開不起來並說明。主視窗在上鎖狀態下打開時會自動先問一次系統驗證（開著時才上鎖的不會），取消後可以輸入主密碼或 PIN；程式請求授權時跳出的解鎖視窗不自動問，由使用者自己選擇用主密碼、PIN 或系統驗證。
 - **取捨**：PIN 與系統驗證都表示上鎖時記憶體裡仍有可解鎖的材料（PIN 保護的金鑰，或金鑰本身），與 Bitwarden 桌面版相同；預設都關閉。
 - **測試**：e2e 新增 5 項（共 185 項）：經由 nibwarden-core 實際走過 PIN 設定、錯誤與正確的 PIN、保留金鑰解鎖、重新載入後要先主密碼、移除 PIN；只有自己的視窗能設定 PIN；沒有 PIN 時無法用 PIN 解鎖；圖示只接受網域；狀態欄位。單元測試：快捷鍵轉換、圖示網址與網域、網址取主機名稱。截圖：解鎖視窗（PIN、系統驗證）、設定各區、項目圖示。
 - **沒驗證的**：真的 polkit 對話框（需要安裝套件的規則與桌面的 polkit agent）、實際從圖示服務取圖（e2e 環境不一定能連外）、真的 GNOME 快捷鍵錄製、閒置登出。
