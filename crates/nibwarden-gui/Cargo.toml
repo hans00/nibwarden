@@ -10,13 +10,16 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+# Websites' icons come from the daemon as base64.
+base64 = "0.22"
 # Item history dates in local time.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 nibwarden-config = { workspace = true }
 nibwarden-ipc = { workspace = true }
 nibwarden-platform = { workspace = true, features = ["clipboard", "tray"] }
 # Reading a one-time code's QR code from a screenshot or an image file.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Also websites' icons, which come as PNG, ICO or JPEG.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
 # Choosing a key or image file: the desktop portal on Linux, the native dialog elsewhere.
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
 rqrr = "0.11"

@@ -44,6 +44,7 @@ export global Account {
             : key == "mismatch" ? @tr("The two passwords differ.")
             : key == "hint-is-password" ? @tr("The hint must not be the password itself.")
             : key == "no-daemon" ? @tr("nibwardend is not running.")
+            : key == "session-ended" ? @tr("Your login has expired. Sign in again to keep your vault in sync.")
             : key;
     }
 

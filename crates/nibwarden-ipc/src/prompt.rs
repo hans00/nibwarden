@@ -26,6 +26,9 @@ pub enum Prompt {
         application: Option<Requester>,
         #[serde(default)]
         scope: Scope,
+        /// Ways to unlock besides the master password that work now.
+        #[serde(default, skip_serializing_if = "QuickUnlock::is_none")]
+        quick: QuickUnlock,
     },
     /// The vault is unlocked; ask whether to allow a request.
     Approve {
@@ -56,10 +59,32 @@ pub enum Scope {
     Terminal,
 }
 
+/// Unlocking without the master password (phase2.md §12.19).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuickUnlock {
+    /// With the PIN (`Answer::Pin`).
+    #[serde(default)]
+    pub pin: bool,
+    /// With the system's authentication (`Answer::System`).
+    #[serde(default)]
+    pub system: bool,
+}
+
+impl QuickUnlock {
+    fn is_none(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
     WrongPassword,
+    WrongPin,
+    /// The PIN no longer works (too many wrong ones): the master password is needed.
+    PinSuspended,
+    /// The system did not confirm the user.
+    NotConfirmed,
 }
 
 /// A program on whose behalf the daemon asks, as identified by the OS (not self-reported).
@@ -179,6 +204,17 @@ pub enum Answer {
         #[serde(default)]
         all_applications: bool,
     },
+    /// To `unlock`: the PIN instead of the master password.
+    Pin {
+        pin: Zeroizing<String>,
+        #[serde(default)]
+        all_applications: bool,
+    },
+    /// To `unlock`: confirm the user with the system's authentication instead.
+    System {
+        #[serde(default)]
+        all_applications: bool,
+    },
     /// To `approve`.
     Allow {
         #[serde(default)]
@@ -207,6 +243,7 @@ mod tests {
             access: None,
             application: None,
             scope: Scope::Application,
+            quick: QuickUnlock::default(),
         };
         assert_eq!(
             serde_json::to_value(&prompt).unwrap(),

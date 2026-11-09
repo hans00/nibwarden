@@ -133,6 +133,9 @@ msgstr "載入中…"
 msgid "nibwardend is not running."
 msgstr "nibwardend 沒有在執行。"
 
+msgid "Your login has expired. Sign in again to keep your vault in sync."
+msgstr "登入已過期，請重新登入以繼續同步密碼庫。"
+
 msgid "nibwarden settings"
 msgstr "nibwarden 設定"
 
@@ -214,11 +217,7 @@ msgstr "程式讀取密碼前詢問"
 msgid "Keyboard shortcut"
 msgstr "快捷鍵"
 
-msgid "Ctrl+Shift+Space opens quick access."
-msgstr "Ctrl+Shift+Space 開啟快速存取。"
 
-msgid "Set up"
-msgstr "設定"
 
 msgid "Copy username"
 msgstr "複製使用者名稱"
@@ -679,8 +678,6 @@ msgstr "設定…"
 msgid "Quit"
 msgstr "結束"
 
-msgid "System tray"
-msgstr "系統匣"
 
 msgid "Show in the system tray"
 msgstr "顯示在系統匣"
@@ -1079,3 +1076,70 @@ msgstr "用 SSH 金鑰簽署 git commit"
 
 msgid "Signing key"
 msgstr "簽署用的金鑰"
+
+msgid "Could not turn it on: conflicting setting in ~/.ssh/config."
+msgstr "無法啟用：~/.ssh/config 有衝突的設定。"
+
+msgid "Could not turn it on: conflicting git setting."
+msgstr "無法啟用：git 有衝突的設定。"
+
+msgid "Could not set the PIN."
+msgstr "無法設定 PIN 碼。"
+
+msgid "Could not turn it on: the system authentication rule is not installed."
+msgstr "無法啟用：尚未安裝系統驗證規則。"
+
+msgid "Minimize the window after copying"
+msgstr "複製後最小化視窗"
+
+msgid "New PIN"
+msgstr "新的 PIN 碼"
+
+msgid "None"
+msgstr "無"
+
+msgid "Not confirmed."
+msgstr "驗證未完成。"
+
+msgid "PIN"
+msgstr "PIN 碼"
+
+msgid "Press keys…"
+msgstr "請按下快捷鍵…"
+
+
+msgid "Set it in the desktop's keyboard settings, to run: nibwarden-gui quick"
+msgstr "請在桌面的鍵盤設定中加入快捷鍵，執行：nibwarden-gui quick"
+
+msgid "Show website icons"
+msgstr "顯示網站圖示"
+
+msgid "Start nibwarden at login"
+msgstr "登入時啟動 nibwarden"
+
+msgid "Startup"
+msgstr "啟動"
+
+msgid "Timeout action"
+msgstr "逾時後動作"
+
+msgid "Too many wrong PINs. Enter the master password."
+msgstr "PIN 碼錯誤次數過多，請輸入主密碼。"
+
+msgid "Unlock with a PIN"
+msgstr "使用 PIN 碼解鎖"
+
+msgid "Unlock with system authentication"
+msgstr "使用系統驗證解鎖"
+
+msgid "Use PIN"
+msgstr "改用 PIN 碼"
+
+msgid "Use master password"
+msgstr "改用主密碼"
+
+msgid "Use system authentication"
+msgstr "使用系統驗證"
+
+msgid "Wrong PIN."
+msgstr "PIN 碼錯誤。"

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Unlocking nibwarden with the system's authentication instead of the master password,
+     after the master password unlocked once (nibwarden settings, Unlock). -->
+<policyconfig>
+  <vendor>nibwarden</vendor>
+  <vendor_url>https://github.com/hans00/nibwarden</vendor_url>
+  <icon_name>nibwarden</icon_name>
+  <action id="me.hans00.nibwarden.unlock">
+    <description>Unlock nibwarden</description>
+    <description xml:lang="zh_TW">解鎖 nibwarden</description>
+    <description xml:lang="zh_CN">解锁 nibwarden</description>
+    <message>Authenticate to unlock nibwarden</message>
+    <message xml:lang="zh_TW">請驗證身分以解鎖 nibwarden</message>
+    <message xml:lang="zh_CN">请验证身份以解锁 nibwarden</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

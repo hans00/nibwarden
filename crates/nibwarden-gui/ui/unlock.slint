@@ -4,7 +4,7 @@
 import { Theme } from "theme.slint";
 import { AccessCard, ActionKind, ApprovalOptions, ApprovalScope, AppMark, Avatar, Button, Checkbox, Icon, Icons, PasswordField, PurposeKind, RequesterCard, Spinner, TitleBar, WindowCard } from "components.slint";
 
-export enum UnlockError { none, wrong-password }
+export enum UnlockError { none, wrong-password, wrong-pin, pin-suspended, not-confirmed }
 export enum UnlockMode { unlock, unlock-allow, reprompt }
 
 export component UnlockWindow inherits Window {
@@ -37,7 +37,17 @@ export component UnlockWindow inherits Window {
     in property <string> app;
     in-out property <bool> all-applications;
     in property <UnlockError> error;
-    property <string> error-text: error == UnlockError.wrong-password ? @tr("Wrong master password.") : "";
+    property <string> error-text: error == UnlockError.wrong-password ? @tr("Wrong master password.")
+        : error == UnlockError.wrong-pin ? @tr("Wrong PIN.")
+        : error == UnlockError.pin-suspended ? @tr("Too many wrong PINs. Enter the master password.")
+        : error == UnlockError.not-confirmed ? @tr("Not confirmed.")
+        : "";
+    // Unlocking without the master password, where that works now; `use-pin`: the field
+    // takes the PIN.
+    in property <bool> pin-available;
+    in property <bool> system-available;
+    in-out property <bool> use-pin;
+    callback system();
     in property <bool> busy;
     in-out property <string> password;
 
@@ -135,6 +145,7 @@ export component UnlockWindow inherits Window {
                 }
 
                 field := PasswordField {
+                    placeholder: root.use-pin ? @tr("PIN") : @tr("Master password");
                     text <=> root.password;
                     enabled: !root.busy;
                     busy: root.busy;
@@ -162,6 +173,28 @@ export component UnlockWindow inherits Window {
                             color: Theme.danger;
                             font-size: Theme.font-small;
                             vertical-alignment: center;
+                        }
+                    }
+                }
+                if (root.pin-available || root.system-available) && root.mode != UnlockMode.reprompt: HorizontalLayout {
+                    padding-bottom: 8px;
+                    spacing: 10px;
+                    if root.system-available: Button {
+                        horizontal-stretch: 1;
+                        text: @tr("Use system authentication");
+                        enabled: !root.busy;
+                        clicked => {
+                            root.system();
+                        }
+                    }
+                    if root.pin-available: Button {
+                        horizontal-stretch: 1;
+                        text: root.use-pin ? @tr("Use master password") : @tr("Use PIN");
+                        enabled: !root.busy;
+                        clicked => {
+                            root.use-pin = !root.use-pin;
+                            root.password = "";
+                            field.focus();
                         }
                     }
                 }

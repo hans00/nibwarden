@@ -176,18 +176,29 @@ export component AppMark inherits Rectangle {
     }
 }
 
-// Initial in a circle, for the account.
+// Initial in a circle, for the account and items; a website's icon instead, when there is
+// one.
 export component Avatar inherits Rectangle {
     in property <string> initial;
+    in property <image> icon;
+    property <bool> has-icon: root.icon.width > 0;
     width: 28px;
     height: 28px;
     border-radius: self.width / 2;
-    background: Theme.accent-soft;
-    Text {
+    background: root.has-icon ? #ffffff : Theme.accent-soft;
+    border-width: root.has-icon ? 1px : 0;
+    border-color: Theme.border;
+    if !root.has-icon: Text {
         text: root.initial == "" ? "?" : root.initial;
         color: Theme.accent;
         font-size: 13px;
         font-weight: 700;
+    }
+    if root.has-icon: Image {
+        width: parent.width * 0.62;
+        height: parent.height * 0.62;
+        source: root.icon;
+        image-fit: contain;
     }
 }
 

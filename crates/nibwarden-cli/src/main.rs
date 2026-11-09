@@ -841,7 +841,12 @@ fn prompt_tty(prompt: &str) -> Result<String> {
 fn print_status(status: &StatusResult) {
     let state = match status.state {
         LockState::LoggedOut => {
-            println!("Not logged in.");
+            match status.email.as_deref().filter(|_| status.session_ended) {
+                Some(email) => println!(
+                    "Not logged in: the server ended the login of {email}; run `nibwarden login` again."
+                ),
+                None => println!("Not logged in."),
+            }
             return;
         }
         LockState::Locked => "locked",

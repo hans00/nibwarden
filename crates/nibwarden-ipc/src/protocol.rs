@@ -207,6 +207,22 @@ pub enum Request {
     /// extension, or null for none.
     #[serde(rename = "browser.message")]
     BrowserMessage { message: serde_json::Value },
+    /// A website's icon, from the account's server's icon service (phase2.md §12.19).
+    /// Needs no unlocked vault: only the domain is sent. Result: [`IconResult`].
+    /// Unlocks with the PIN set in the settings window (`auth.set_pin`); works once the
+    /// master password unlocked since the daemon started. Result: null.
+    #[serde(rename = "auth.unlock_pin")]
+    UnlockPin { pin: Zeroizing<String> },
+    /// Unlocks once the system confirmed the user (polkit), for the calling process.
+    /// Result: null.
+    #[serde(rename = "auth.unlock_system")]
+    UnlockSystem,
+    /// Sets the unlock PIN (`None`: removes it). nibwarden's own windows only; needs the
+    /// vault unlocked. Result: null.
+    #[serde(rename = "auth.set_pin")]
+    SetPin { pin: Option<Zeroizing<String>> },
+    #[serde(rename = "item.icon")]
+    ItemIcon { domain: String },
 }
 
 impl Request {
@@ -248,6 +264,10 @@ impl Request {
             Self::VaultExport { .. } => "vault.export",
             Self::VaultImport { .. } => "vault.import",
             Self::BrowserMessage { .. } => "browser.message",
+            Self::ItemIcon { .. } => "item.icon",
+            Self::UnlockPin { .. } => "auth.unlock_pin",
+            Self::UnlockSystem => "auth.unlock_system",
+            Self::SetPin { .. } => "auth.set_pin",
         }
     }
 }
@@ -352,6 +372,19 @@ pub struct StatusResult {
     /// Path of the SSH agent socket, when the agent is enabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_agent_socket: Option<String>,
+    /// The PIN unlocks now (`auth.unlock_pin`).
+    #[serde(default)]
+    pub pin_unlock: bool,
+    /// The system's authentication unlocks now (`auth.unlock_system`).
+    #[serde(default)]
+    pub system_unlock: bool,
+    /// A PIN is set (it may need the master password first).
+    #[serde(default)]
+    pub pin_set: bool,
+    /// Logged out because the server ended the login (`email` is whose); the windows
+    /// ask to log in again.
+    #[serde(default)]
+    pub session_ended: bool,
 }
 
 /// An item for a detail view: which secrets it has is said, their values are read with
@@ -637,6 +670,14 @@ pub struct ImportResult {
     pub items: u32,
     /// Folders created (existing ones with the same name are reused).
     pub folders: u32,
+}
+
+/// A website's icon (`item.icon`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IconResult {
+    /// The image as served (PNG usually), base64; `None` when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
 }
 
 mod base64_bytes {

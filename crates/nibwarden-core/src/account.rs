@@ -50,6 +50,17 @@ pub struct Account {
     unlock_capture: Arc<UnlockDataCapture>,
     user_id: String,
     email: String,
+    /// What unlocks this session besides the master password, in memory only.
+    quick: std::sync::Mutex<QuickUnlock>,
+}
+
+/// Unlocking without the master password, after it unlocked once (phase2.md §12.19).
+#[derive(Default)]
+struct QuickUnlock {
+    /// The user key protected by the PIN.
+    pin: Option<bitwarden_crypto::safe::PasswordProtectedKeyEnvelope>,
+    /// The user key itself, for system authentication.
+    key: Option<zeroize::Zeroizing<String>>,
 }
 
 impl Account {
@@ -200,6 +211,7 @@ impl Account {
             unlock_capture,
             user_id,
             email,
+            quick: Default::default(),
         })
     }
 
@@ -289,7 +301,20 @@ impl Account {
                 exclude_subdomains: None,
             })
             .await
-            .sdk("sync")?;
+            .map_err(|e| match e {
+                // As Bitwarden's clients: a refused login (the token could not be renewed)
+                // or a deleted account ends the session.
+                bitwarden_sync::SyncError::Api(bitwarden_core::ApiError::Response(ref r))
+                    if r.status.as_u16() == 401 =>
+                {
+                    Error::SessionEnded
+                }
+                bitwarden_sync::SyncError::AccountDeleted => Error::SessionEnded,
+                e => Error::Sdk {
+                    context: "sync",
+                    source: Box::new(e),
+                },
+            })?;
 
         let captured = self.unlock_capture.latest.lock().expect("poisoned").take();
         if let Some(master_password_unlock) = captured {
@@ -303,6 +328,32 @@ impl Account {
     }
 
     pub async fn unlock_with_password(&self, password: &str) -> Result<(), Error> {
+        let unlock = self.store.read_unlock_data()?.ok_or(Error::LoggedOut)?;
+        let method = InitUserCryptoMethod::MasterPasswordUnlock {
+            password: password.to_owned(),
+            master_password_unlock: unlock.master_password_unlock.clone(),
+        };
+        self.unlock_with(method).await?;
+        // The PIN works again until the daemon ends.
+        if let Some(encrypted_pin) = self.store.read_pin()? {
+            match self
+                .client
+                .crypto()
+                .enroll_pin_with_encrypted_pin(encrypted_pin)
+            {
+                Ok(pin) => {
+                    self.quick.lock().expect("poisoned").pin =
+                        Some(pin.pin_protected_user_key_envelope);
+                }
+                Err(e) => tracing::warn!(error = %e, "cannot restore the unlock PIN"),
+            }
+        }
+        Ok(())
+    }
+
+    /// Unlocks with `method`; [`Error::WrongPassword`] when its secret does not open the
+    /// user key.
+    async fn unlock_with(&self, method: InitUserCryptoMethod) -> Result<(), Error> {
         let unlock = self.store.read_unlock_data()?.ok_or(Error::LoggedOut)?;
         let account_cryptographic_state = self
             .client
@@ -320,10 +371,7 @@ impl Account {
             kdf_params: unlock.master_password_unlock.kdf.clone(),
             email: unlock.email,
             account_cryptographic_state,
-            method: InitUserCryptoMethod::MasterPasswordUnlock {
-                password: password.to_owned(),
-                master_password_unlock: unlock.master_password_unlock,
-            },
+            method,
             upgrade_token: None,
         };
         match self
@@ -332,13 +380,101 @@ impl Account {
             .unlock(UnlockMethod::Legacy(request))
             .await
         {
-            Ok(()) | Err(UnlockError::AlreadyUnlocked) => Ok(()),
-            // The master-password-derived key fails to decrypt the user key.
-            Err(UnlockError::EncryptionSettings(EncryptionSettingsError::Crypto(_))) => {
-                Err(Error::WrongPassword)
+            Ok(()) | Err(UnlockError::AlreadyUnlocked) => {
+                login::keep_client_id(self.client.platform()).await
             }
+            // The secret's key fails to decrypt the user key.
+            Err(UnlockError::EncryptionSettings(
+                EncryptionSettingsError::Crypto(_) | EncryptionSettingsError::WrongPin,
+            )) => Err(Error::WrongPassword),
             Err(e) => Err(e).sdk("unlock"),
         }
+    }
+
+    /// Sets the PIN that unlocks this session from now on (`None`: no PIN). It keeps working
+    /// across locks, and after the daemon restarts once the master password unlocked again.
+    /// Needs an unlocked vault.
+    pub fn set_pin(&self, pin: Option<&str>) -> Result<(), Error> {
+        let Some(pin) = pin else {
+            self.quick.lock().expect("poisoned").pin = None;
+            return self.store.write_pin(None);
+        };
+        if !self.is_unlocked() {
+            return Err(Error::Locked);
+        }
+        let enrolled = self
+            .client
+            .crypto()
+            .enroll_pin(pin.to_owned())
+            .sdk("protect the user key with the PIN")?;
+        self.store
+            .write_pin(Some(&enrolled.user_key_encrypted_pin.to_string()))?;
+        self.quick.lock().expect("poisoned").pin = Some(enrolled.pin_protected_user_key_envelope);
+        Ok(())
+    }
+
+    /// Whether a PIN is set (it may still need one master password unlock to work).
+    pub fn has_pin(&self) -> bool {
+        self.store.read_pin().is_ok_and(|p| p.is_some())
+    }
+
+    /// Whether the PIN unlocks now.
+    pub fn pin_ready(&self) -> bool {
+        self.quick.lock().expect("poisoned").pin.is_some()
+    }
+
+    /// Stops the PIN working until the master password unlocks again (too many wrong ones).
+    pub fn suspend_pin(&self) {
+        self.quick.lock().expect("poisoned").pin = None;
+    }
+
+    pub async fn unlock_with_pin(&self, pin: &str) -> Result<(), Error> {
+        let envelope = self
+            .quick
+            .lock()
+            .expect("poisoned")
+            .pin
+            .clone()
+            .ok_or_else(|| Error::State("the PIN needs the master password first".into()))?;
+        self.unlock_with(InitUserCryptoMethod::PinEnvelope {
+            pin: pin.to_owned(),
+            pin_protected_user_key_envelope: envelope,
+        })
+        .await
+    }
+
+    /// Keeps the user key in memory while locked, for unlocking with the system's
+    /// authentication; `false` forgets it. Needs an unlocked vault to keep it.
+    pub async fn keep_key(&self, keep: bool) -> Result<(), Error> {
+        let key = if keep {
+            Some(self.user_key().await?)
+        } else {
+            None
+        };
+        self.quick.lock().expect("poisoned").key = key;
+        Ok(())
+    }
+
+    /// Whether the kept key can unlock (system authentication).
+    pub fn key_kept(&self) -> bool {
+        self.quick.lock().expect("poisoned").key.is_some()
+    }
+
+    /// Unlocks with the kept key, once the system's authentication said yes.
+    pub async fn unlock_with_kept_key(&self) -> Result<(), Error> {
+        let key = self
+            .quick
+            .lock()
+            .expect("poisoned")
+            .key
+            .clone()
+            .ok_or_else(|| {
+                Error::State("unlocking this way needs the master password first".into())
+            })?;
+        self.unlock_with(InitUserCryptoMethod::DecryptedKey {
+            decrypted_user_key: key.to_string(),
+        })
+        .await
     }
 
     /// Checks the master password without changing the lock state, for items that ask for

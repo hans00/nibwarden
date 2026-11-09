@@ -10,6 +10,7 @@ mod edit;
 mod error;
 mod file_repository;
 mod generator;
+mod icons;
 mod login;
 mod platform;
 mod registration;
@@ -24,6 +25,7 @@ pub use browser::{BrowserChannel, ExtensionKeys};
 pub use edit::{CustomField, CustomFieldKind, FolderInfo, ItemContent, KINDS, SECRET_KEYS};
 pub use error::Error;
 pub use generator::{PassphraseOptions, PasswordOptions, generate_passphrase, generate_password};
+pub use icons::{fetch_icon, icons_url, valid_domain};
 pub use registration::{
     Registration, finish_registration, make_registration, normalize_email, start_registration,
 };

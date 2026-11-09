@@ -105,15 +105,23 @@ use nibwarden's agent: adds a
 .B Host *
 block with
 .B IdentityAgent
-at the end of
+to
 .IR ~/.ssh/config ,
-so hosts with an agent of their own keep it.
+before the first agent set there for every host, so it takes their place while hosts
+set up with an agent of their own above it keep theirs.
+ssh is asked
+.RB ( "ssh \-G" )
+whether the block takes effect; if not, the file is left as it was and the reason shown.
+Running it again repairs a block that later edits put out of effect.
 \fB\-\-remove\fR takes the block out again.
 The settings window does the same.
 .TP
 .B ssh git\-setup \fR[\fB\-\-key\fR \fIname\fR] [\fB\-\-global\fR] | \fB\-\-remove\fR
 Make git sign commits with an SSH key from the vault, through
 .BR nibwarden\-ssh\-sign (1).
+With \fB\-\-global\fR, a setup that another file git reads would override (an
+.B [include]
+after it) is refused and the git config left as it was.
 \fB\-\-remove\fR stops that in the global git config (the allowed signers stay, so
 earlier commits still verify).
 The settings window does the same for the global git config.
@@ -187,9 +195,11 @@ Every key is optional:
 [appearance]
 theme = "system"          # "system", "light" or "dark"
 language = "system"       # or a tag such as "zh-TW", "zh-CN", "en"
+website_icons = true      # show websites' icons (the icon service sees the domains)
 
 [lock]
 idle_minutes = 15         # lock after this long unused; 0 = never
+idle_action = "lock"      # then "lock", or "logout" (deletes the local copy too)
 on_screen_lock = true
 on_sleep = true
 
@@ -202,6 +212,11 @@ without_window = "allow"  # when no window can be shown (SSH)
 [clipboard]
 clear = true
 clear_after_seconds = 90
+minimize_after_copy = false
+
+[unlock]
+system = false            # unlock with the system's authentication (polkit) once
+                          # the master password unlocked since nibwardend started
 
 [tray]
 enabled = false           # system tray icon, started at login

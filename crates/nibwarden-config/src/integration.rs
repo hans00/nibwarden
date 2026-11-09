@@ -15,14 +15,61 @@ fn home() -> io::Result<PathBuf> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))
 }
 
+/// A setting not made because another one would take precedence over it; the error
+/// inside the `io::Error` that [`ssh::set_agent`] and [`git::set_signing`] return then.
+#[derive(Debug, Clone)]
+pub struct Overridden {
+    /// The setting, e.g. `IdentityAgent` or `gpg.format`.
+    pub setting: String,
+    /// The value that is used instead.
+    pub value: String,
+    /// The file it comes from, when known.
+    pub file: Option<String>,
+}
+
+impl std::fmt::Display for Overridden {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} would still be used", self.setting, self.value)?;
+        if let Some(file) = &self.file {
+            write!(f, " (from {file})")?;
+        }
+        write!(f, "; nothing was changed")
+    }
+}
+
+impl std::error::Error for Overridden {}
+
+impl Overridden {
+    /// The `Overridden` inside `error`, if that is what it is.
+    pub fn of(error: &io::Error) -> Option<&Self> {
+        error.get_ref()?.downcast_ref()
+    }
+}
+
 /// ssh's agent: a `Host *` block in `~/.ssh/config` naming nibwarden's agent socket, as
-/// 1Password does. It goes at the end, so hosts the user set up with another agent keep it.
+/// 1Password does. ssh takes the first value it finds, so the block goes before the first
+/// agent the user set for every host (keeping the agents of hosts set up above it), or at
+/// the end when there is none. ssh itself (`ssh -G`) then confirms the block takes effect;
+/// if it does not, the file is left as it was.
 pub mod ssh {
     use super::*;
 
     const BEGIN: &str =
         "# Added by nibwarden: use its SSH agent (nibwarden settings, SSH and Git).";
     const END: &str = "# End of nibwarden's settings.";
+    /// A host no one sets up specially, to ask ssh which agent applies by default.
+    const ANY_HOST: &str = "nibwarden-check.invalid";
+
+    /// Whether ssh uses nibwarden's agent.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum Agent {
+        /// No nibwarden block.
+        Off,
+        On,
+        /// nibwarden's block is there, but ssh uses this agent instead (the file was
+        /// changed since).
+        Overridden(String),
+    }
 
     pub fn config_path() -> io::Result<PathBuf> {
         Ok(home()?.join(".ssh/config"))
@@ -35,18 +82,29 @@ pub mod ssh {
         }
     }
 
-    /// The config without nibwarden's block, and whether it had one.
-    fn without_block(text: &str) -> (String, bool) {
+    fn block(socket: &Path) -> String {
+        format!(
+            "{BEGIN}\nHost *\n    IdentityAgent \"{}\"\n{END}\n",
+            socket.display()
+        )
+    }
+
+    /// The config without nibwarden's block, and the socket the block named, if any.
+    fn without_block(text: &str) -> (String, Option<String>) {
         let mut kept = Vec::new();
         let mut inside = false;
-        let mut found = false;
+        let mut socket = None;
         for line in text.lines() {
             if line.trim() == BEGIN {
                 inside = true;
-                found = true;
+                socket = Some(String::new());
             } else if inside && line.trim() == END {
                 inside = false;
-            } else if !inside {
+            } else if inside {
+                if let Some(value) = directive(line, "IdentityAgent") {
+                    socket = Some(value.trim_matches('"').to_owned());
+                }
+            } else {
                 kept.push(line);
             }
         }
@@ -57,53 +115,161 @@ pub mod ssh {
         if !out.is_empty() {
             out.push('\n');
         }
-        (out, found)
+        (out, socket)
     }
 
-    /// Whether ssh is set up to use nibwarden's agent.
-    pub fn uses_nibwarden() -> bool {
-        config_path()
-            .and_then(|p| read(&p))
-            .is_ok_and(|text| without_block(&text).1)
-    }
-
-    /// An `IdentityAgent` the user set themselves, which takes precedence where it applies.
-    pub fn other_agent() -> Option<String> {
-        let text = read(&config_path().ok()?).ok()?;
-        without_block(&text).0.lines().find_map(|line| {
-            let mut words = line.split_whitespace();
-            let key = words.next()?;
-            key.eq_ignore_ascii_case("IdentityAgent")
-                .then(|| words.collect::<Vec<_>>().join(" "))
+    /// The value of `keyword` on `line` (`Keyword value` or `Keyword=value`).
+    fn directive<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
+        let line = line.trim_start();
+        let (key, value) = line.split_once(|c: char| c.is_whitespace() || c == '=')?;
+        key.eq_ignore_ascii_case(keyword).then(|| {
+            value
+                .trim_start_matches(|c: char| c.is_whitespace() || c == '=')
+                .trim()
         })
     }
 
-    /// Points ssh at the agent `socket`, or with `None` removes nibwarden's block.
+    /// Whether `line` starts a block that applies to every host (`Host *`, `Match all`).
+    fn global_header(line: &str) -> Option<bool> {
+        if let Some(patterns) = directive(line, "Host") {
+            return Some(patterns.split_whitespace().any(|p| p == "*"));
+        }
+        directive(line, "Match").map(|criteria| criteria.eq_ignore_ascii_case("all"))
+    }
+
+    /// Where nibwarden's block goes in `text` (without it): the line of the first block for
+    /// every host that sets an agent, or `None` for the end.
+    fn insert_at(text: &str) -> Option<usize> {
+        let mut header: Option<(usize, bool)> = None;
+        for (i, line) in text.lines().enumerate() {
+            if let Some(global) = global_header(line) {
+                header = Some((i, global));
+            } else if directive(line, "IdentityAgent").is_some() {
+                match header {
+                    // Before any Host line, a directive applies to every host.
+                    None => return Some(0),
+                    Some((at, true)) => return Some(at),
+                    Some((_, false)) => {}
+                }
+            }
+        }
+        None
+    }
+
+    /// `text` with nibwarden's block at line `at` (`None`: at the end).
+    fn with_block(text: &str, socket: &Path, at: Option<usize>) -> String {
+        let block = block(socket);
+        match at {
+            Some(at) => {
+                let mut lines: Vec<&str> = text.lines().collect();
+                lines.insert(at, block.trim_end());
+                lines.join("\n") + "\n"
+            }
+            None if text.is_empty() => block,
+            None => format!("{text}\n{block}"),
+        }
+    }
+
+    /// The agent ssh uses for `host` with the config at `path`, as ssh reports it; `None`
+    /// if ssh cannot be asked.
+    fn effective(path: &Path, host: &str) -> Option<String> {
+        let out = Command::new("ssh")
+            .arg("-G")
+            .arg("-F")
+            .arg(path)
+            .arg(host)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        Some(
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .find_map(|l| l.strip_prefix("identityagent "))
+                .unwrap_or("none")
+                .to_owned(),
+        )
+    }
+
+    /// Whether ssh uses nibwarden's agent, by asking ssh.
+    pub fn agent() -> Agent {
+        let Ok(path) = config_path() else {
+            return Agent::Off;
+        };
+        let Some(socket) = read(&path).ok().and_then(|text| without_block(&text).1) else {
+            return Agent::Off;
+        };
+        match effective(&path, ANY_HOST) {
+            Some(used) if used != socket => Agent::Overridden(used),
+            _ => Agent::On,
+        }
+    }
+
+    /// An `IdentityAgent` the user set for particular hosts, which they keep.
+    pub fn other_agent() -> Option<String> {
+        let text = read(&config_path().ok()?).ok()?;
+        let mut global = true;
+        without_block(&text).0.lines().find_map(|line| {
+            if let Some(g) = global_header(line) {
+                global = g;
+                return None;
+            }
+            directive(line, "IdentityAgent")
+                .filter(|_| !global)
+                .map(str::to_owned)
+        })
+    }
+
+    /// Points ssh at the agent `socket`, or with `None` removes nibwarden's block. A block
+    /// that ssh would not use is not left behind: the file is restored and the reason
+    /// returned.
     pub fn set_agent(socket: Option<&Path>) -> io::Result<()> {
         let path = config_path()?;
-        let (mut text, found) = without_block(&read(&path)?);
-        if socket.is_none() && !found {
-            return Ok(());
-        }
-        if let Some(socket) = socket {
-            if !text.is_empty() {
-                text.push('\n');
+        let existed = path.exists();
+        let original = read(&path)?;
+        let (text, had) = without_block(&original);
+        let Some(socket) = socket else {
+            return if had.is_some() {
+                write(&path, &text)
+            } else {
+                Ok(())
+            };
+        };
+        let wanted = socket.display().to_string();
+        // Before the user's agent for every host; failing that (e.g. one set in an
+        // Included file), first of all.
+        for at in [insert_at(&text), Some(0)] {
+            write(&path, &with_block(&text, socket, at))?;
+            match effective(&path, ANY_HOST) {
+                Some(used) if used != wanted => continue,
+                _ => return Ok(()),
             }
-            text.push_str(&format!(
-                "{BEGIN}\nHost *\n    IdentityAgent \"{}\"\n{END}\n",
-                socket.display()
-            ));
         }
+        let used = effective(&path, ANY_HOST).unwrap_or_default();
+        if !existed {
+            std::fs::remove_file(&path)?;
+        } else {
+            write(&path, &original)?;
+        }
+        Err(io::Error::other(Overridden {
+            setting: "IdentityAgent".into(),
+            value: used,
+            file: None,
+        }))
+    }
+
+    fn write(path: &Path, text: &str) -> io::Result<()> {
         let dir = path.parent().expect("~/.ssh/config has a parent");
         if !dir.exists() {
             std::fs::create_dir_all(dir)?;
             set_mode(dir, 0o700)?;
         }
         let new = !path.exists();
-        std::fs::write(&path, text)?;
+        std::fs::write(path, text)?;
         // ssh refuses a config that others can write.
         if new {
-            set_mode(&path, 0o600)?;
+            set_mode(path, 0o600)?;
         }
         Ok(())
     }
@@ -127,11 +293,30 @@ pub mod ssh {
         fn adds_and_removes_its_block() {
             let user = "Host work\n    IdentityAgent ~/.other.sock\n";
             let (text, found) = without_block(user);
-            assert_eq!((text.as_str(), found), (user, false));
-            let with =
-                format!("{user}\n{BEGIN}\nHost *\n    IdentityAgent \"/run/a.sock\"\n{END}\n");
+            assert_eq!((text.as_str(), found), (user, None));
+            let with = with_block(user, Path::new("/run/a.sock"), insert_at(user));
+            assert!(with.ends_with(&block(Path::new("/run/a.sock"))));
             let (text, found) = without_block(&with);
-            assert_eq!((text.as_str(), found), (user, true));
+            assert_eq!(
+                (text.as_str(), found.as_deref()),
+                (user, Some("/run/a.sock"))
+            );
+        }
+
+        #[test]
+        fn goes_before_the_users_agent_for_every_host() {
+            let user = "Host work\n  IdentityAgent /w.sock\nHost *\n  IdentityAgent /all.sock\n";
+            assert_eq!(insert_at(user), Some(2));
+            let with = with_block(user, Path::new("/n.sock"), insert_at(user));
+            assert!(with.starts_with(&format!("Host work\n  IdentityAgent /w.sock\n{BEGIN}")));
+            assert_eq!(without_block(&with).0, user);
+            // Before any Host line, and Match all, count as every host.
+            assert_eq!(insert_at("IdentityAgent /a.sock\n"), Some(0));
+            assert_eq!(
+                insert_at("Host a\nMatch all\n  IdentityAgent=/a\n"),
+                Some(1)
+            );
+            assert_eq!(insert_at("Host a b\n  IdentityAgent /a\n"), None);
         }
     }
 }
@@ -197,9 +382,46 @@ pub mod git {
             .filter(|v| !v.is_empty())
     }
 
+    /// The value git uses outside any repository, every config file and include counted.
+    fn effective(name: &str) -> Option<String> {
+        outside_repository(&["config", "--get", name])
+    }
+
+    /// Where [`effective`]'s value comes from: `file:<path>\t<value>`.
+    fn effective_origin(name: &str) -> Option<String> {
+        outside_repository(&["config", "--show-origin", "--get", name])
+    }
+
+    fn outside_repository(args: &[&str]) -> Option<String> {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(std::env::temp_dir())
+            .env("GIT_CEILING_DIRECTORIES", std::env::temp_dir())
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    }
+
     /// The name of the vault key the global git config signs commits with, when it is
     /// nibwarden's setup and signing is on.
     pub fn signing_key() -> Option<String> {
+        let name = ours()?;
+        // In effect, not overridden by another file git reads.
+        [
+            "gpg.format",
+            "gpg.ssh.program",
+            "user.signingkey",
+            "commit.gpgsign",
+        ]
+        .iter()
+        .all(|key| effective(key) == get(Scope::Global, key))
+        .then_some(name)
+    }
+
+    /// The vault key name, when the global git config holds nibwarden's signing setup.
+    fn ours() -> Option<String> {
         let program = get(Scope::Global, "gpg.ssh.program")?;
         let key = get(Scope::Global, "user.signingkey")?;
         let on = get(Scope::Global, "commit.gpgsign").as_deref() == Some("true");
@@ -267,8 +489,33 @@ pub mod git {
             }
             None => None,
         };
+        let before: Vec<Option<String>> = settings.iter().map(|(key, _)| get(scope, key)).collect();
         for (key, value) in &settings {
             git(&["config", scope.flag(), key, value])?;
+        }
+        // Another file git reads (an [include]d one, or the repository's) may set these too;
+        // a setup git would not use is not left behind.
+        if scope == Scope::Global
+            && let Some((key, _)) = settings
+                .iter()
+                .find(|(key, value)| effective(key).as_deref() != Some(value.as_str()))
+        {
+            // "file:<path>\t<value>"
+            let origin = effective_origin(key).unwrap_or_default();
+            let (file, value) = origin.split_once('\t').unwrap_or(("", &origin));
+            let file = file.strip_prefix("file:").unwrap_or(file).to_owned();
+            let value = value.to_owned();
+            for ((key, _), old) in settings.iter().zip(before) {
+                match old {
+                    Some(old) => git(&["config", "--global", key, &old]).map(drop)?,
+                    None => git(&["config", "--global", "--unset", key]).map(drop)?,
+                };
+            }
+            return Err(io::Error::other(Overridden {
+                setting: (*key).to_owned(),
+                value,
+                file: (!file.is_empty()).then_some(file),
+            }));
         }
         Ok(Signing { trusted, settings })
     }
@@ -276,7 +523,7 @@ pub mod git {
     /// Stops the global git config signing commits, if it does so through nibwarden.
     /// The allowed signers file stays, so earlier commits still verify.
     pub fn unset_signing() -> io::Result<()> {
-        if signing_key().is_none() {
+        if ours().is_none() {
             return Ok(());
         }
         for key in [

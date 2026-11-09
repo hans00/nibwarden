@@ -54,7 +54,13 @@ enum FieldKey {
 
 enum Command {
     Load,
-    Unlock(Zeroizing<String>),
+    /// The master password, or with `pin` the PIN.
+    Unlock {
+        secret: Zeroizing<String>,
+        pin: bool,
+    },
+    /// With the system's authentication.
+    UnlockSystem,
     Open(String),
     /// Copy a field read from the daemon.
     Copy {
@@ -331,6 +337,8 @@ struct OpenItem {
 
 thread_local! {
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
+    /// The system's authentication was asked for on its own already in this window.
+    static SYSTEM_ASKED: Cell<bool> = const { Cell::new(false) };
     /// Counts toasts, so an older one's timer does not hide a newer one.
     static TOAST_GENERATION: Cell<u64> = const { Cell::new(0) };
 }
@@ -496,7 +504,21 @@ fn connect_callbacks(ui: &Vault<'_>, commands: &mpsc::UnboundedSender<Command>) 
             v.set_password("".into());
             v.set_error(UnlockError::None);
             v.set_busy(true);
-            let _ = tx.send(Command::Unlock(password.clone()));
+            let _ = tx.send(Command::Unlock {
+                secret: password.clone(),
+                pin: v.get_use_pin(),
+            });
+        });
+    });
+    let tx = commands.clone();
+    ui.on_unlock_system(move || {
+        vault(|v| {
+            if v.get_busy() {
+                return;
+            }
+            v.set_error(UnlockError::None);
+            v.set_busy(true);
+            let _ = tx.send(Command::UnlockSystem);
         });
     });
     connect_editing(ui, commands);
@@ -927,6 +949,24 @@ fn set_items(items: Vec<ItemInfo>) {
     }
     refilter();
     follow_open();
+    let domains = with_state(|s| {
+        s.all
+            .iter()
+            .filter_map(|i| crate::icons::domain(&i.uris))
+            .collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+    crate::icons::request(domains, icons_arrived);
+}
+
+/// A website icon arrived: shown in the rows and the open item that have it.
+fn icons_arrived() {
+    refilter();
+    let open = with_state(|s| s.open.as_ref().map(|o| o.view.uris.clone())).flatten();
+    if let Some(uris) = open {
+        let icon = crate::icons::get(crate::icons::domain(&uris).as_deref());
+        vault(|v| v.set_item_icon(icon.clone()));
+    }
 }
 
 /// The list row of the open item: -1 when the list does not show it; `None` with no
@@ -1012,6 +1052,7 @@ fn quick_item(item: &ItemInfo) -> QuickItem {
         subtitle: item.subtitle.as_str().into(),
         folder: item.folder.clone().unwrap_or_default().into(),
         initial: initial(&item.name),
+        icon: crate::icons::get(crate::icons::domain(&item.uris).as_deref()),
         has_username: login && !item.subtitle.is_empty(),
         has_password: login,
         has_totp: item.has_totp,
@@ -1170,6 +1211,9 @@ fn show_item(ui: &Vault<'_>, view: ItemView, notes: Option<Zeroizing<String>>) {
     ui.set_item_name(view.name.as_str().into());
     ui.set_item_folder(view.folder.clone().unwrap_or_default().into());
     ui.set_item_initial(initial(&view.name));
+    ui.set_item_icon(crate::icons::get(
+        crate::icons::domain(&view.uris).as_deref(),
+    ));
     with_state(|s| {
         s.fields.set_vec(rows.fields);
         update_model(&s.groups, rows.groups);
@@ -1242,7 +1286,11 @@ fn show_problem(post: &Post, message: String) {
 }
 
 fn show_toast(post: &Post, copied: Copied) {
+    let minimize = nibwarden_config::load().clipboard.minimize_after_copy;
     ui(post, move |ui| {
+        if minimize {
+            ui.invoke_minimize_window();
+        }
         ui.set_message("".into());
         ui.set_copied(copied);
         ui.set_toast_shown(true);
@@ -1363,13 +1411,44 @@ fn worker(
                             ui(&post, |ui| ui.set_syncing(false));
                             continue;
                         }
-                        Command::Unlock(password) => {
-                            match client.call::<()>(Request::Unlock { password }).await {
+                        Command::Unlock { secret, pin } => {
+                            let request = if pin {
+                                Request::UnlockPin { pin: secret }
+                            } else {
+                                Request::Unlock { password: secret }
+                            };
+                            match client.call::<()>(request).await {
                                 Ok(()) => load(&mut client, &post).await,
-                                Err(ClientError::Remote(e)) if e.code == ErrorCode::Denied => ui(&post, |ui| {
+                                Err(ClientError::Remote(e)) if e.code == ErrorCode::Denied => ui(&post, move |ui| {
                                     ui.set_busy(false);
-                                    ui.set_error(UnlockError::WrongPassword);
+                                    ui.set_error(if pin {
+                                        UnlockError::WrongPin
+                                    } else {
+                                        UnlockError::WrongPassword
+                                    });
                                 }),
+                                // Too many wrong PINs: the master password from now on.
+                                Err(ClientError::Remote(e)) if pin && e.code == ErrorCode::Unavailable => ui(&post, |ui| {
+                                    ui.set_busy(false);
+                                    ui.set_pin_available(false);
+                                    ui.set_use_pin(false);
+                                    ui.set_error(UnlockError::PinSuspended);
+                                }),
+                                Err(e) => show_message(&post, e.to_string()),
+                            }
+                            continue;
+                        }
+                        Command::UnlockSystem => {
+                            match client.call::<()>(Request::UnlockSystem).await {
+                                Ok(()) => load(&mut client, &post).await,
+                                Err(ClientError::Remote(e))
+                                    if matches!(e.code, ErrorCode::Denied | ErrorCode::Unavailable) =>
+                                {
+                                    ui(&post, |ui| {
+                                        ui.set_busy(false);
+                                        ui.set_error(UnlockError::NotConfirmed);
+                                    })
+                                }
                                 Err(e) => show_message(&post, e.to_string()),
                             }
                             continue;
@@ -1530,20 +1609,43 @@ async fn load(client: &mut Client, post: &Post) {
         Ok(status) => status,
         Err(e) => return show_message(post, e.to_string()),
     };
-    if let Some(email) = status.email.clone() {
+    // Logged out, `email` only says whose login ended.
+    if let Some(email) = status
+        .email
+        .clone()
+        .filter(|_| !matches!(status.state, LockState::LoggedOut))
+    {
         ui(post, move |ui| {
             ui.set_initial(initial(&email));
             ui.set_email(email.into());
         });
     }
     match status.state {
-        LockState::LoggedOut => show_notice(post, QuickNotice::LoggedOut),
+        LockState::LoggedOut => {
+            let ended = status
+                .email
+                .filter(|_| status.session_ended)
+                .unwrap_or_default();
+            ui(post, move |ui| ui.set_session_ended_email(ended.into()));
+            show_notice(post, QuickNotice::LoggedOut);
+        }
         LockState::Locked => {
+            let (pin, system) = (status.pin_unlock, status.system_unlock);
             ui(post, move |ui| {
+                // Only a window opened on a locked vault asks the system on its own; one
+                // that locks while open waits for the user to come back to it.
+                let opening = ui.get_state() == QuickState::Loading;
                 end_edit();
                 close_item();
                 ui.set_busy(false);
+                ui.set_pin_available(pin);
+                ui.set_use_pin(pin);
+                ui.set_system_available(system);
                 ui.set_state(QuickState::Locked);
+                // As Bitwarden does, the system asks right away, once per window.
+                if system && opening && !SYSTEM_ASKED.with(|asked| asked.replace(true)) {
+                    ui.invoke_unlock_system();
+                }
             });
         }
         LockState::Unlocked => match fetch_items(client).await {

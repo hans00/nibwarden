@@ -1,7 +1,7 @@
 // Settings (phase2.md §5.6). Every change is saved right away to config.toml and the
 // daemon is asked to reload it; there is no Save button.
 import { Theme } from "theme.slint";
-import { Button, ScrollBar, Segmented, Switch, TitleBar, WindowCard } from "components.slint";
+import { Button, PasswordField, ScrollBar, Segmented, Switch, TitleBar, WindowCard } from "components.slint";
 import { Picker } from "editor.slint";
 
 component Section inherits VerticalLayout {
@@ -28,6 +28,8 @@ component Section inherits VerticalLayout {
 component SettingRow inherits Rectangle {
     in property <string> label;
     in property <string> detail;
+    // The detail says why something failed.
+    in property <bool> failed;
     in property <bool> first;
     min-height: 56px;
     if !root.first: Rectangle {
@@ -53,7 +55,7 @@ component SettingRow inherits Rectangle {
             }
             if root.detail != "": Text {
                 text: root.detail;
-                color: Theme.text-muted;
+                color: root.failed ? Theme.danger : Theme.text-muted;
                 font-size: Theme.font-small;
                 wrap: word-wrap;
             }
@@ -64,6 +66,63 @@ component SettingRow inherits Rectangle {
                 alignment: center;
                 @children
             }
+        }
+    }
+}
+
+// A keyboard shortcut: shows it; clicked, records the next key combination (Esc cancels,
+// Backspace clears).
+component ShortcutField inherits Rectangle {
+    // As shown, e.g. "Ctrl+Shift+Space"; empty when there is none.
+    in property <string> shortcut;
+    in-out property <bool> recording;
+    // A key with its modifiers; `true` if it makes a shortcut (recording then ends).
+    callback pressed(string, bool, bool, bool, bool) -> bool;
+    callback cleared();
+    width: 200px;
+    height: 34px;
+    border-radius: Theme.radius-sm + 1px;
+    background: root.recording ? Theme.accent-soft : touch.has-hover ? Theme.surface-muted : Theme.surface;
+    border-width: root.recording ? 2px : 1px;
+    border-color: root.recording ? Theme.accent : Theme.border-strong;
+    accessible-role: button;
+    accessible-label: @tr("Keyboard shortcut");
+    accessible-value: root.shortcut;
+    Text {
+        text: root.recording ? @tr("Press keys…") : root.shortcut != "" ? root.shortcut : @tr("None");
+        color: root.recording || root.shortcut == "" ? Theme.text-muted : Theme.text;
+        font-size: Theme.font-body;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.recording = true;
+            keys.focus();
+        }
+    }
+    keys := FocusScope {
+        enabled: root.recording;
+        focus-changed-event => {
+            if !self.has-focus {
+                root.recording = false;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.recording = false;
+                return accept;
+            }
+            if event.text == Key.Backspace || event.text == Key.Delete {
+                root.recording = false;
+                root.cleared();
+                return accept;
+            }
+            if root.pressed(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift, event.modifiers.meta) {
+                root.recording = false;
+            }
+            accept
         }
     }
 }
@@ -89,6 +148,19 @@ export component SettingsWindow inherits Window {
     in-out property <int> remember-for;
     in-out property <bool> allow-without-window;
     in-out property <bool> tray;
+    in-out property <bool> start-at-login;
+    in-out property <bool> website-icons;
+    // Unlocking without the master password: with the system's authentication, and with
+    // a PIN (`pin-entry`: the PIN is being typed).
+    in-out property <bool> system-unlock;
+    in-out property <bool> system-unlock-failed;
+    in-out property <bool> pin-unlock;
+    in-out property <bool> pin-entry;
+    in-out property <string> pin-text;
+    in-out property <bool> pin-failed;
+    // After the inactivity timeout: 0 lock, 1 sign out.
+    in-out property <int> idle-action;
+    in-out property <bool> minimize-after-copy;
     // The browser extension unlocks with nibwarden; `browser-others`: the browsers where
     // another program (Bitwarden's desktop app) is registered instead.
     in-out property <bool> browser;
@@ -97,11 +169,19 @@ export component SettingsWindow inherits Window {
     // ~/.ssh/config, which still applies to its hosts.
     in-out property <bool> ssh-agent;
     in property <string> ssh-other-agent;
+    // Turning a setting on failed because another one takes precedence; the switch stays
+    // off. The conflicting value (ssh) or setting (git), for the record.
+    in-out property <string> ssh-failed;
+    in-out property <string> git-failed;
     // git signs commits with the vault key `ssh-keys[signing-key]`.
     in-out property <bool> git-signing;
     in property <[string]> ssh-keys;
     in-out property <int> signing-key;
     in property <string> shortcut-status;
+    // Quick access's shortcut as shown ("Ctrl+Shift+Space"); whether nibwarden can set it on
+    // this desktop.
+    in property <string> shortcut;
+    in property <bool> shortcut-supported;
     // Problems saving, shown at the bottom.
     in property <string> error;
 
@@ -116,8 +196,16 @@ export component SettingsWindow inherits Window {
     callback remember-chosen(int);
     callback remember-for-chosen(int);
     callback allow-without-window-changed(bool);
-    callback install-shortcut();
+    callback shortcut-pressed(string, bool, bool, bool, bool) -> bool;
+    callback shortcut-cleared();
     callback tray-changed(bool);
+    callback start-at-login-changed(bool);
+    callback website-icons-changed(bool);
+    callback system-unlock-changed(bool);
+    callback pin-unlock-changed(bool);
+    callback pin-submitted();
+    callback idle-action-chosen(int);
+    callback minimize-after-copy-changed(bool);
     callback browser-changed(bool);
     callback ssh-agent-changed(bool);
     callback git-signing-changed(bool);
@@ -187,12 +275,32 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
                                 }
+                                SettingRow {
+                                    label: @tr("Show website icons");
+                                    Switch {
+                                        label: @tr("Show website icons");
+                                        checked <=> root.website-icons;
+                                        toggled(on) => {
+                                            root.website-icons-changed(on);
+                                        }
+                                    }
+                                }
                             }
 
                             Section {
-                                title: @tr("System tray");
+                                title: @tr("Startup");
                                 SettingRow {
                                     first: true;
+                                    label: @tr("Start nibwarden at login");
+                                    Switch {
+                                        label: @tr("Start nibwarden at login");
+                                        checked <=> root.start-at-login;
+                                        toggled(on) => {
+                                            root.start-at-login-changed(on);
+                                        }
+                                    }
+                                }
+                                SettingRow {
                                     label: @tr("Show in the system tray");
                                     Switch {
                                         label: @tr("Show in the system tray");
@@ -214,6 +322,16 @@ export component SettingsWindow inherits Window {
                                         selected <=> root.idle;
                                         chosen(index) => {
                                             root.idle-chosen(index);
+                                        }
+                                    }
+                                }
+                                if root.idle != 5: SettingRow {
+                                    label: @tr("Timeout action");
+                                    Segmented {
+                                        options: [@tr("Lock"), @tr("Sign out")];
+                                        selected <=> root.idle-action;
+                                        chosen(index) => {
+                                            root.idle-action-chosen(index);
                                         }
                                     }
                                 }
@@ -240,6 +358,46 @@ export component SettingsWindow inherits Window {
                             }
 
                             Section {
+                                title: @tr("Unlock");
+                                SettingRow {
+                                    first: true;
+                                    label: @tr("Unlock with system authentication");
+                                    failed: root.system-unlock-failed;
+                                    detail: root.system-unlock-failed ? @tr("Could not turn it on: the system authentication rule is not installed.") : "";
+                                    Switch {
+                                        label: @tr("Unlock with system authentication");
+                                        checked <=> root.system-unlock;
+                                        toggled(on) => {
+                                            root.system-unlock-changed(on);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    label: @tr("Unlock with a PIN");
+                                    failed: root.pin-failed;
+                                    detail: root.pin-failed ? @tr("Could not set the PIN.") : "";
+                                    Switch {
+                                        label: @tr("Unlock with a PIN");
+                                        checked <=> root.pin-unlock;
+                                        toggled(on) => {
+                                            root.pin-unlock-changed(on);
+                                        }
+                                    }
+                                }
+                                if root.pin-entry: SettingRow {
+                                    label: @tr("New PIN");
+                                    PasswordField {
+                                        width: 220px;
+                                        placeholder: @tr("PIN");
+                                        text <=> root.pin-text;
+                                        accepted => {
+                                            root.pin-submitted();
+                                        }
+                                    }
+                                }
+                            }
+
+                            Section {
                                 title: @tr("Clipboard");
                                 SettingRow {
                                     first: true;
@@ -259,6 +417,16 @@ export component SettingsWindow inherits Window {
                                         selected <=> root.clear-after;
                                         chosen(index) => {
                                             root.clear-after-chosen(index);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    label: @tr("Minimize the window after copying");
+                                    Switch {
+                                        label: @tr("Minimize the window after copying");
+                                        checked <=> root.minimize-after-copy;
+                                        toggled(on) => {
+                                            root.minimize-after-copy-changed(on);
                                         }
                                     }
                                 }
@@ -315,11 +483,16 @@ export component SettingsWindow inherits Window {
                                 SettingRow {
                                     first: true;
                                     label: @tr("Keyboard shortcut");
-                                    detail: root.shortcut-status == "" ? @tr("Ctrl+Shift+Space opens quick access.") : root.shortcut-status;
-                                    Button {
-                                        text: @tr("Set up");
-                                        clicked => {
-                                            root.install-shortcut();
+                                    failed: root.shortcut-status != "";
+                                    detail: root.shortcut-status != "" ? root.shortcut-status
+                                        : root.shortcut-supported ? "" : @tr("Set it in the desktop's keyboard settings, to run: nibwarden-gui quick");
+                                    if root.shortcut-supported: ShortcutField {
+                                        shortcut: root.shortcut;
+                                        pressed(text, control, alt, shift, meta) => {
+                                            root.shortcut-pressed(text, control, alt, shift, meta)
+                                        }
+                                        cleared => {
+                                            root.shortcut-cleared();
                                         }
                                     }
                                 }
@@ -330,7 +503,9 @@ export component SettingsWindow inherits Window {
                                 SettingRow {
                                     first: true;
                                     label: @tr("Use the SSH agent");
-                                    detail: root.ssh-agent && root.ssh-other-agent != "" ? @tr("Hosts with their own IdentityAgent in ~/.ssh/config keep it.") : "";
+                                    failed: root.ssh-failed != "";
+                                    detail: root.ssh-failed != "" ? @tr("Could not turn it on: conflicting setting in ~/.ssh/config.")
+                                        : root.ssh-agent && root.ssh-other-agent != "" ? @tr("Hosts with their own IdentityAgent in ~/.ssh/config keep it.") : "";
                                     Switch {
                                         label: @tr("Use the SSH agent");
                                         checked <=> root.ssh-agent;
@@ -341,6 +516,8 @@ export component SettingsWindow inherits Window {
                                 }
                                 SettingRow {
                                     label: @tr("Sign git commits with an SSH key");
+                                    failed: root.git-failed != "";
+                                    detail: root.git-failed != "" ? @tr("Could not turn it on: conflicting git setting.") : "";
                                     Switch {
                                         label: @tr("Sign git commits with an SSH key");
                                         checked <=> root.git-signing;

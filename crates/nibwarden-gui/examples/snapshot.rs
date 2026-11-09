@@ -121,6 +121,22 @@ fn main() {
                 &name("unlock-error"),
             );
 
+            // With a PIN and the system's authentication available.
+            let ui = UnlockWindow::new().unwrap();
+            setup(&ui, lang, dark);
+            show_unlock(&ui, email, &waiting);
+            ui.set_pin_available(true);
+            ui.set_use_pin(true);
+            ui.set_system_available(true);
+            ui.set_error(UnlockError::WrongPin);
+            render(
+                &window,
+                &ui,
+                WIDTH,
+                |ui| ui.get_natural_height(),
+                &name("unlock-quick"),
+            );
+
             let ui = UnlockWindow::new().unwrap();
             setup(&ui, lang, dark);
             show_unlock(&ui, email, &[]);
@@ -260,6 +276,7 @@ fn main() {
                 vault.set_item_name("GitHub".into());
                 vault.set_item_folder("Work 工作".into());
                 vault.set_item_initial("G".into());
+                vault.set_item_icon(stand_in_icon());
                 vault.set_fields(fields());
                 vault.set_groups(groups());
             };
@@ -589,6 +606,13 @@ fn main() {
             ui.set_allow_without_window(true);
             ui.set_browser(true);
             ui.set_browser_others("Google Chrome".into());
+            ui.set_shortcut_supported(true);
+            ui.set_shortcut("Ctrl+Shift+Space".into());
+            ui.set_system_unlock(true);
+            ui.set_pin_unlock(true);
+            ui.set_pin_entry(true);
+            ui.set_website_icons(true);
+            ui.set_start_at_login(true);
             ui.set_ssh_agent(true);
             ui.set_git_signing(true);
             ui.set_ssh_keys(slint::ModelRc::new(slint::VecModel::from(vec![
@@ -596,6 +620,13 @@ fn main() {
                 "GitHub".into(),
             ])));
             render(&window, &ui, 664.0, |_| 724.0, &name("settings"));
+            // Halfway down: unlocking, the clipboard, quick access.
+            window.dispatch_event(WindowEvent::PointerScrolled {
+                position: slint::LogicalPosition::new(300.0, 400.0),
+                delta_x: 0.0,
+                delta_y: -780.0,
+            });
+            render(&window, &ui, 664.0, |_| 724.0, &name("settings-middle"));
             // Scrolled to the end, with the wheel.
             window.dispatch_event(WindowEvent::PointerScrolled {
                 position: slint::LogicalPosition::new(300.0, 400.0),
@@ -603,6 +634,12 @@ fn main() {
                 delta_y: -3000.0,
             });
             render(&window, &ui, 664.0, |_| 724.0, &name("settings-end"));
+            // Turning ssh and git on failed: both off, with the reason.
+            ui.set_ssh_agent(false);
+            ui.set_git_signing(false);
+            ui.set_ssh_failed("/home/hans/.bitwarden-ssh-agent.sock".into());
+            ui.set_git_failed("gpg.format".into());
+            render(&window, &ui, 664.0, |_| 724.0, &name("settings-failed"));
 
             let ui = ApproveWindow::new().unwrap();
             setup(&ui, lang, dark);
@@ -648,12 +685,29 @@ fn quick_item(name: &str, user: &str, folder: &str) -> QuickItem {
         subtitle: user.into(),
         folder: folder.into(),
         initial: name[..1].into(),
+        // One row with a website icon, as the icon service would give: a dark rounded mark.
+        icon: if name == "GitHub" {
+            stand_in_icon()
+        } else {
+            slint::Image::default()
+        },
         has_username: true,
         has_password: true,
         has_totp: name == "GitHub",
         has_website: true,
         trashed: false,
     }
+}
+
+/// A 32 px stand-in for a website's icon: a dark disc.
+fn stand_in_icon() -> slint::Image {
+    let mut pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(32, 32);
+    for (i, pixel) in pixels.make_mut_slice().iter_mut().enumerate() {
+        let (x, y) = ((i % 32) as f32 - 15.5, (i / 32) as f32 - 15.5);
+        let inside = x * x + y * y <= 15.5 * 15.5;
+        *pixel = slint::Rgba8Pixel::new(36, 41, 47, if inside { 255 } else { 0 });
+    }
+    slint::Image::from_rgba8(pixels)
 }
 
 fn setup<C>(ui: &C, lang: &str, dark: bool)

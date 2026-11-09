@@ -7,6 +7,10 @@ pub enum Error {
     TwoFactorRequired(Vec<TwoFactorProvider>),
     #[error("not logged in")]
     LoggedOut,
+    /// The server no longer accepts this login (its refresh token was refused, the
+    /// account was deleted): logging in again is the only way to sync.
+    #[error("the server ended this login; log in again")]
+    SessionEnded,
     #[error("vault is locked")]
     Locked,
     #[error("wrong master password")]

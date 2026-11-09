@@ -15,7 +15,7 @@ use std::{
 
 use nibwarden_ipc::{
     ErrorBody, ErrorCode, FrameError, LockState,
-    prompt::{Access, Answer, Prompt, Requester, RetryReason, Scope},
+    prompt::{Access, Answer, Prompt, QuickUnlock, Requester, RetryReason, Scope},
     read_frame, write_frame,
 };
 use nibwarden_platform::peer::Peer;
@@ -167,23 +167,12 @@ impl PromptBroker {
             access: Some(access),
             application,
             scope,
+            quick: quick(daemon).await,
         };
         let mut window = Window::open(gui, &first).await?;
+        let pid = window.child.id();
         let result = window
-            .run(|answer| async move {
-                let Answer::Password {
-                    password,
-                    all_applications,
-                } = answer
-                else {
-                    return Step::Done(Err(cancelled()));
-                };
-                match daemon.unlock(&password).await {
-                    Ok(()) => Step::Done(Ok(all_applications)),
-                    Err(e) if e.code == ErrorCode::Denied => Step::Retry,
-                    Err(e) => Step::Done(Err(e)),
-                }
-            })
+            .run(|answer| async move { try_unlock(daemon, answer, pid).await })
             .await;
         window.close().await;
         result.map(|all_applications| Unlocked::AndAllowed { all_applications })
@@ -242,7 +231,7 @@ impl PromptBroker {
                 };
                 match daemon.verify_password(&password).await {
                     Ok(true) => Step::Done(Ok(())),
-                    Ok(false) => Step::Retry,
+                    Ok(false) => Step::Retry(RetryReason::WrongPassword),
                     Err(e) => Step::Done(Err(e)),
                 }
             })
@@ -289,8 +278,10 @@ async fn run_round(gui: &Path, daemon: &Arc<Daemon>, round: &UnlockRound) -> Out
         access: None,
         application: None,
         scope: Scope::default(),
+        quick: quick(daemon).await,
     };
     let mut window = Window::open(gui, &first).await?;
+    let pid = window.child.id();
     let Window {
         to_gui, answers, ..
     } = &mut window;
@@ -298,18 +289,13 @@ async fn run_round(gui: &Path, daemon: &Arc<Daemon>, round: &UnlockRound) -> Out
     let result = loop {
         tokio::select! {
             answer = answers.recv() => {
-                let Answer::Password { password, .. } = to_answer(answer) else {
-                    break Err(cancelled());
-                };
-                match daemon.unlock(&password).await {
-                    Ok(()) => break Ok(()),
-                    Err(e) if e.code == ErrorCode::Denied => {
-                        let retry = Prompt::Retry { reason: RetryReason::WrongPassword };
-                        if let Err(e) = send(to_gui, &retry).await {
+                match try_unlock(daemon, to_answer(answer), pid).await {
+                    Step::Done(result) => break result.map(drop),
+                    Step::Retry(reason) => {
+                        if let Err(e) = send(to_gui, &Prompt::Retry { reason }).await {
                             break Err(e);
                         }
                     }
-                    Err(e) => break Err(e),
                 }
             }
             () = round.joined.notified() => {
@@ -336,8 +322,55 @@ async fn run_round(gui: &Path, daemon: &Arc<Daemon>, round: &UnlockRound) -> Out
 /// What to do after an answer.
 enum Step<T> {
     Done(Result<T, ErrorBody>),
-    /// Wrong master password: say so and keep the window open.
-    Retry,
+    /// A wrong answer: say why and keep the window open.
+    Retry(RetryReason),
+}
+
+/// Unlocks with an unlock window's answer, the master password, the PIN or the system's
+/// confirmation (asked for the window's process `window`).
+async fn try_unlock(daemon: &Arc<Daemon>, answer: Answer, window: Option<u32>) -> Step<bool> {
+    let (result, all_applications, wrong) = match answer {
+        Answer::Password {
+            password,
+            all_applications,
+        } => (
+            daemon.unlock(&password).await,
+            all_applications,
+            RetryReason::WrongPassword,
+        ),
+        Answer::Pin {
+            pin,
+            all_applications,
+        } => match daemon.unlock_with_pin(&pin).await {
+            Err(e) if e.code == ErrorCode::Unavailable => {
+                return Step::Retry(RetryReason::PinSuspended);
+            }
+            result => (result, all_applications, RetryReason::WrongPin),
+        },
+        Answer::System { all_applications } => {
+            let Some(pid) = window else {
+                return Step::Retry(RetryReason::NotConfirmed);
+            };
+            match daemon.unlock_with_system(pid).await {
+                Err(e) if e.code == ErrorCode::Unavailable => {
+                    tracing::info!(reason = e.message, "system authentication failed");
+                    return Step::Retry(RetryReason::NotConfirmed);
+                }
+                result => (result, all_applications, RetryReason::NotConfirmed),
+            }
+        }
+        _ => return Step::Done(Err(cancelled())),
+    };
+    match result {
+        Ok(()) => Step::Done(Ok(all_applications)),
+        Err(e) if e.code == ErrorCode::Denied => Step::Retry(wrong),
+        Err(e) => Step::Done(Err(e)),
+    }
+}
+
+async fn quick(daemon: &Daemon) -> QuickUnlock {
+    let (pin, system) = daemon.quick_unlock().await;
+    QuickUnlock { pin, system }
 }
 
 /// One running `nibwarden-gui prompt` process.
@@ -395,11 +428,8 @@ impl Window {
             loop {
                 match step(to_answer(self.answers.recv().await)).await {
                     Step::Done(result) => return result,
-                    Step::Retry => {
-                        let retry = Prompt::Retry {
-                            reason: RetryReason::WrongPassword,
-                        };
-                        send(&mut self.to_gui, &retry).await?;
+                    Step::Retry(reason) => {
+                        send(&mut self.to_gui, &Prompt::Retry { reason }).await?;
                     }
                 }
             }

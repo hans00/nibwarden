@@ -6,9 +6,11 @@
 //! [appearance]
 //! theme = "system"      # "system", "light" or "dark"
 //! language = "system"   # "system" or a language tag such as "zh-TW" or "en"
+//! website_icons = true  # show websites' icons (the server's icon service sees the domains)
 //!
 //! [lock]
 //! idle_minutes = 15     # lock after this long without vault use; 0 = never
+//! idle_action = "lock"  # then "lock", or "logout" (deletes the local copy too)
 //! on_screen_lock = true # lock the vault when the screen locks
 //! on_sleep = true       # lock the vault before suspend or hibernation
 //!
@@ -22,6 +24,11 @@
 //! [clipboard]
 //! clear = true          # remove a copied secret from the clipboard after a while
 //! clear_after_seconds = 90
+//! minimize_after_copy = false # minimize the main window after copying from it
+//!
+//! [unlock]
+//! system = false        # unlock with the system's authentication (polkit), after the
+//!                       # master password unlocked once since nibwardend started
 //!
 //! [tray]
 //! enabled = false       # show an icon in the system tray, started at login
@@ -41,6 +48,17 @@ pub struct Config {
     pub approval: Approval,
     pub clipboard: ClipboardSettings,
     pub tray: Tray,
+    pub unlock: Unlock,
+}
+
+/// Unlocking without typing the master password, once it unlocked since the daemon
+/// started (phase2.md §12.19). A PIN is set in the settings window and kept in the data
+/// directory, not here.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct Unlock {
+    /// With the system's authentication (polkit: the login password or a fingerprint).
+    pub system: bool,
 }
 
 /// The system tray icon (phase2.md P2-M8). Off by default: GNOME shows it only with the
@@ -57,6 +75,8 @@ pub struct Tray {
 pub struct ClipboardSettings {
     pub clear: bool,
     pub clear_after_seconds: u32,
+    /// Minimize the main window once something is copied from it.
+    pub minimize_after_copy: bool,
 }
 
 impl Default for ClipboardSettings {
@@ -64,6 +84,7 @@ impl Default for ClipboardSettings {
         Self {
             clear: true,
             clear_after_seconds: 90,
+            minimize_after_copy: false,
         }
     }
 }
@@ -130,14 +151,26 @@ pub enum Ask {
 #[serde(default)]
 pub struct Lock {
     pub idle_minutes: u32,
+    /// What happens after `idle_minutes` without vault use.
+    pub idle_action: IdleAction,
     pub on_screen_lock: bool,
     pub on_sleep: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IdleAction {
+    #[default]
+    Lock,
+    /// Log out: the local copy of the vault is deleted too.
+    Logout,
 }
 
 impl Default for Lock {
     fn default() -> Self {
         Self {
             idle_minutes: 15,
+            idle_action: IdleAction::Lock,
             on_screen_lock: true,
             on_sleep: true,
         }
@@ -158,6 +191,8 @@ pub struct Appearance {
     pub theme: Theme,
     /// `system`, or a language tag (`zh-TW`, `zh_TW`, `en`).
     pub language: String,
+    /// Show websites' icons, from the server's icon service (which learns the domains).
+    pub website_icons: bool,
 }
 
 impl Default for Appearance {
@@ -165,6 +200,7 @@ impl Default for Appearance {
         Self {
             theme: Theme::System,
             language: "system".to_owned(),
+            website_icons: true,
         }
     }
 }

@@ -761,13 +761,30 @@ crates/
 ### 12.17.1 設定視窗的 SSH 與 Git
 
 - 試用時發現設定視窗沒有 1Password／Bitwarden 那樣「設為 SSH agent」「用來簽 git」的開關，只有 CLI。寫入 `~/.ssh/config` 與 git config 的程式搬到 `nibwarden-config::integration`，CLI 與設定視窗共用。
-- **SSH agent**：仿 1Password，在 `~/.ssh/config` 加上 `Host *` 與 `IdentityAgent "<daemon 回報的 socket 路徑>"`，以註解行標出開頭結尾，關閉時整塊移除。放在檔案結尾：ssh 以第一個取得的值為準，所以使用者替個別主機指定的 agent 仍然有效（視窗只在有這種設定時加一句說明）。寫實際路徑而不是 `${XDG_RUNTIME_DIR}`，因為沒有這個環境變數的工作階段裡 ssh 會直接失敗。檔案不存在時以 0600 建立（ssh 拒絕他人可寫的設定）。CLI：`nibwarden ssh agent-setup [--remove]`。
+- **SSH agent**：仿 1Password，在 `~/.ssh/config` 加上 `Host *` 與 `IdentityAgent "<daemon 回報的 socket 路徑>"`，以註解行標出開頭結尾，關閉時整塊移除。ssh 以第一個取得的值為準，所以區塊插在第一個「對所有主機」設定 agent 的地方之前（`Host *`、`Match all`，或任何 Host 之前的全域設定；例如之前用 Bitwarden／1Password 的 agent），沒有這種設定就放結尾：取代舊的全域 agent，而寫在它上面、替個別主機指定的 agent 仍然有效。最初只放結尾，使用者實際試用時，原本的 `Host *` Bitwarden agent 在前面，區塊完全沒作用卻顯示已開啟，所以改成這樣，並且**寫入後用 `ssh -G` 驗證**：一般主機用的 agent 不是 nibwarden 的（例如設定在 Include 的檔案裡），就改放檔案最前面再驗證一次，仍不行就把檔案還原並回報原因，不留下沒作用的設定。設定視窗的開關只反映實際生效的狀態（也用 `ssh -G` 判斷）：區塊還在但之後被編輯蓋過，就顯示為關閉，再開啟時會重新放置。開啟失敗時開關退回關閉，下方以紅字簡短說明有衝突的設定（「無法啟用：~/.ssh/config 有衝突的設定。」、「無法啟用：git 有衝突的設定。」）；細節（哪個值、哪個檔案）放在 `integration::Overridden` 裡，CLI 會印出。CLI 再執行一次 `agent-setup` 也會修正。寫實際路徑而不是 `${XDG_RUNTIME_DIR}`，因為沒有這個環境變數的工作階段裡 ssh 會直接失敗。檔案不存在時以 0600 建立（ssh 拒絕他人可寫的設定）。CLI：`nibwarden ssh agent-setup [--remove]`。
 - **git 簽章**：開啟時列出 vault 的 SSH 金鑰（上鎖時開解鎖視窗），用目前選的（或第一把）寫入全域 git config；有多把時多一列「簽署用的金鑰」可切換。關閉只移除 nibwarden 自己寫的設定（`user.signingkey` 帶 `nibwarden:` 標記時），allowed signers 保留，舊 commit 仍可驗證。CLI：`nibwarden ssh git-setup --remove`。
+- **git 設定也驗證**：寫入全域 git config 後，在非 repository 的目錄讀實際生效的值（含 `[include]` 與系統設定）；有被其他檔案蓋過的，就把寫入前的值還原並說明是哪個檔案。設定視窗的開關只在設定實際生效時顯示為開啟。
 - **不需要 git 的 user.email**：原本 `git-setup` 沒有 `user.email` 就拒絕，因為要把金鑰寫進 allowed signers（以電子郵件對應金鑰，供本機 `git log --show-signature` 驗證）。但簽章本身不需要它，1Password 與 Bitwarden 的設定也只寫 `gpg.format`、`user.signingkey`、`gpg.ssh.program`、`commit.gpgsign`。所以改為：有 `user.email` 才加 allowed signers，沒有就只設定簽章並提示。
 - **CLI 不再負責開視窗**：`nibwarden quick`（含 `--install-shortcut`）、`nibwarden open`、`nibwarden settings` 只是啟動 `nibwarden-gui`，拿掉；視窗從應用程式選單、系統匣、快捷鍵（設定視窗裡設定）或直接 `nibwarden-gui <模式>` 開。`nibwarden unlock --gui` 保留，因為那是請 daemon 開它自己的解鎖視窗。下文提到這三個指令的地方是當時的記錄。
 - **解鎖先用視窗**：`nibwarden unlock` 與遇到上鎖的指令（`get`、`list`…）原本有終端機就在終端機問。改為先問 daemon 能不能開視窗（`CanPrompt`：有圖形工作階段、不是從遠端 SSH 來、有安裝 GUI），能就開解鎖視窗，不能才在終端機問。由 daemon 判斷而不是 CLI 自己看 `DISPLAY`，因為 SSH 的 X forwarding 也會有 `DISPLAY`。`--gui`、`--terminal` 可指定。
 - **GPG**：Bitwarden 的項目沒有 OpenPGP 金鑰，所以沒有 GPG agent；git 以 SSH 簽章取代。
-- **測試**：e2e 新增 8 項（共 177 項）：桌面上從終端機 `nibwarden unlock` 會開視窗；沒有 user.email 也能設定簽章；以 `ssh -G` 確認一般主機用 nibwarden 的 agent、自訂 agent 的主機維持原值、重複執行只有一個區塊、移除後檔案還原；`git-setup --global` 與 `--remove`。
+- **測試**：e2e 新增 11 項（共 180 項）：舊的全域 agent 被取代而個別主機維持原值、之後被蓋過時再執行可修正、移除後檔案完全還原；git 設定會被 include 蓋過時拒絕並保持原樣；桌面上從終端機 `nibwarden unlock` 會開視窗；沒有 user.email 也能設定簽章；以 `ssh -G` 確認一般主機用 nibwarden 的 agent、自訂 agent 的主機維持原值、重複執行只有一個區塊、移除後檔案還原；`git-setup --global` 與 `--remove`。
+
+### 12.19 與 Bitwarden 設定對齊的補齊
+
+使用者對照 Bitwarden 桌面版的設定頁，補上缺少的項目：
+
+- **系統匣在重開後恢復**：選單的「結束」只關掉圖示，之後打開 nibwarden 不會再出現；登入時的自動啟動項目又記著當時程式的絕對路徑，換了安裝方式（開發版改成套件、Nix 更新）就失效。改為任何 nibwarden 視窗（主視窗、快速存取、設定）啟動時，只要設定開著，就把自動啟動項目指向目前的程式並啟動圖示（已在執行就什麼都不做，靠原本的 lock 檔）。
+- **快速存取快捷鍵**：設定裡的欄位點下去開始錄製，按下組合鍵就寫入 GNOME 的自訂快捷鍵，Esc 取消、Backspace 清除；需要 Ctrl、Alt 或 Super（F1–F12 除外），避免打字時誤觸。顯示的是桌面設定裡目前的值。非 GNOME 只顯示要綁定的指令。
+- **複製後最小化視窗**（`[clipboard] minimize_after_copy`）：主視窗複製成功後最小化。
+- **登入時啟動 nibwarden**：`systemctl --user enable nibwardend.service`，與系統匣分開（daemon 啟動後即時同步、SSH agent 就緒）。
+- **逾時後動作**（`[lock] idle_action`）：鎖定或登出；登出會刪除本機的密碼庫副本。這個沒有 e2e（daemon 每 10 秒檢查一次，最短逾時是 1 分鐘）。
+- **網站圖示**（`[appearance] website_icons`，預設開）：GUI 向 daemon 要（`item.icon`），daemon 從帳號伺服器的圖示服務取（bitwarden.com 為 `icons.bitwarden.net`、bitwarden.eu 為 `icons.bitwarden.eu`、自架為 `<server>/icons`），用沒有登入的 SDK 用戶端，所以 token 不會送到圖示服務；只接受網域名稱字元，256 KiB 上限，記憶體快取。GUI 解碼（PNG、ICO、JPEG）後取代清單與項目標題的首字母頭像。圖示服務會看到網域，所以可以關閉。
+- **PIN 碼解鎖**：SDK 的 `enroll_pin` 給出以 PIN 保護的使用者金鑰（只在記憶體）與以使用者金鑰加密的 PIN（存在資料目錄的 `pin`）；之後以主密碼解鎖時用後者重新產生前者，所以 daemon 重啟後要先用一次主密碼（同 Bitwarden 的「重新啟動時要求主密碼」）。連續 5 次 PIN 錯誤就停用到下次主密碼解鎖。只有 nibwarden 自己的視窗能設定 PIN（否則任何程式都能設一個 PIN 之後自己解鎖）。
+- **系統驗證解鎖**（`[unlock] system`）：以主密碼解鎖後，daemon 在記憶體保留使用者金鑰；上鎖後要解鎖時，以請求的視窗程序為對象向 polkit 要求 `me.hans00.nibwarden.unlock`（`auth_self`），桌面的 polkit agent 顯示密碼或指紋對話框，通過才用保留的金鑰解鎖。polkit 只讀 `/usr/share/polkit-1/actions`，所以需要套件安裝的規則；沒有規則時設定開不起來並說明。解鎖視窗與主視窗在可用時會自動先問一次系統驗證，取消後可以輸入主密碼或 PIN。
+- **取捨**：PIN 與系統驗證都表示上鎖時記憶體裡仍有可解鎖的材料（PIN 保護的金鑰，或金鑰本身），與 Bitwarden 桌面版相同；預設都關閉。
+- **測試**：e2e 新增 5 項（共 185 項）：經由 nibwarden-core 實際走過 PIN 設定、錯誤與正確的 PIN、保留金鑰解鎖、重新載入後要先主密碼、移除 PIN；只有自己的視窗能設定 PIN；沒有 PIN 時無法用 PIN 解鎖；圖示只接受網域；狀態欄位。單元測試：快捷鍵轉換、圖示網址與網域、網址取主機名稱。截圖：解鎖視窗（PIN、系統驗證）、設定各區、項目圖示。
+- **沒驗證的**：真的 polkit 對話框（需要安裝套件的規則與桌面的 polkit agent）、實際從圖示服務取圖（e2e 環境不一定能連外）、真的 GNOME 快捷鍵錄製、閒置登出。
 
 ### 12.18 公開前改用 cargo xtask
 

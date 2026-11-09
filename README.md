@@ -31,8 +31,10 @@ secret. It is modelled on 1Password's desktop app.
 - **Approvals**: a program that wants a secret or a signature is shown in a window,
   identified by the operating system, not by what it claims. An approval can cover one
   request, the application, or one terminal tab, until the vault locks or for a set time.
-- **Locking**: when idle, when the screen locks and before suspend. While locked, requests
-  wait for you to unlock in a window instead of failing.
+- **Locking**: when idle (or log out instead), when the screen locks and before suspend.
+  While locked, requests wait for you to unlock in a window instead of failing. Unlock
+  with the master password, a PIN, or the system's authentication (password or
+  fingerprint through polkit).
 - **Live sync** with the server's notifications, falling back to periodic sync.
 - **Browser extension**: the official Bitwarden extension's "Unlock with biometrics" asks
   in nibwarden's window instead of Bitwarden's desktop app.

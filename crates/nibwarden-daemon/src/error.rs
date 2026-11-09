@@ -19,7 +19,7 @@ pub fn to_ipc(error: Error) -> ErrorBody {
                 .collect();
             return body;
         }
-        Error::LoggedOut => ErrorCode::LoggedOut,
+        Error::LoggedOut | Error::SessionEnded => ErrorCode::LoggedOut,
         Error::Locked => ErrorCode::Locked,
         Error::WrongPassword | Error::Rejected(_) | Error::Denied(_) => ErrorCode::Denied,
         Error::NotFound(_) => ErrorCode::NotFound,

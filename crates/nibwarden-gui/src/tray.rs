@@ -65,6 +65,65 @@ enum Action {
     Quit,
 }
 
+/// Starts the tray icon at login from now on, and right away (it does nothing when one
+/// runs already); a running icon ends by itself when the setting is turned off.
+pub fn set(on: bool) -> std::io::Result<()> {
+    let exe = std::env::current_exe()?;
+    let command = [
+        exe.display().to_string(),
+        "tray".to_owned(),
+        AUTOSTART_ARG.to_owned(),
+    ];
+    nibwarden_platform::autostart::set(AUTOSTART, "nibwarden", &command, on)?;
+    if on {
+        let spawn = |mut command: std::process::Command| {
+            command
+                .arg("tray")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .spawn()
+        };
+        let mut child = match own_scope(&exe) {
+            Some(scoped) => match spawn(scoped) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    spawn(std::process::Command::new(&exe))
+                }
+                started => started,
+            },
+            None => spawn(std::process::Command::new(&exe)),
+        }?;
+        std::thread::spawn(move || child.wait());
+    }
+    Ok(())
+}
+
+/// The icon outlives the window that started it, so it is not left in that window's
+/// launch: GNOME tracks a launched app by its systemd scope (`app-gnome-nibwarden-….scope`)
+/// and would keep the app in the dock while the icon runs. With a systemd user manager
+/// (and `systemd-run`) it runs in a scope of its own.
+fn own_scope(exe: &std::path::Path) -> Option<std::process::Command> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR")?;
+    if !std::path::Path::new(&dir).join("systemd/private").exists() {
+        return None;
+    }
+    let mut command = std::process::Command::new("systemd-run");
+    command
+        .args(["--user", "--scope", "--quiet", "--collect", "--"])
+        .arg(exe);
+    Some(command)
+}
+
+/// With the tray setting on, brings the icon back if it was quit, and points the login
+/// entry at this program (an update may have moved it, e.g. a new Nix store path).
+/// Called whenever a nibwarden window opens.
+pub fn restore() {
+    if nibwarden_config::load().tray.enabled
+        && let Err(e) = set(true)
+    {
+        tracing::warn!(error = %e, "cannot start the tray icon");
+    }
+}
+
 /// `autostarted`: started at login, so only if the setting is still on.
 pub fn run(autostarted: bool) -> ExitCode {
     let settings = nibwarden_config::load();
@@ -79,6 +138,10 @@ pub fn run(autostarted: bool) -> ExitCode {
     let Some(Some(_lock)) = lock else {
         return ExitCode::SUCCESS;
     };
+    if let Err(e) = crate::windowless::select() {
+        eprintln!("nibwarden-gui: {e}");
+        return ExitCode::FAILURE;
+    }
     let text = match TrayText::new() {
         Ok(text) => text,
         Err(e) => {
@@ -294,6 +357,10 @@ mod tests {
             last_sync: None,
             lock_timeout: None,
             ssh_agent_socket: None,
+            pin_unlock: false,
+            system_unlock: false,
+            pin_set: false,
+            session_ended: false,
         }
     }
 

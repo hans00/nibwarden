@@ -98,6 +98,9 @@ enum Command {
         #[arg(long)]
         user_id: Option<String>,
     },
+    /// Unlock, set a PIN, lock, and unlock with it (wrong, then right); then the same with
+    /// the kept key (system authentication). Prints one line per step.
+    QuickUnlock,
     /// Unlock and create a folder; prints its id.
     AddFolder {
         #[arg(long)]
@@ -237,6 +240,38 @@ async fn main() -> Result<()> {
             let expected_key = account.user_key().await?;
             let user_id = user_id.unwrap_or_else(|| account.user_id().to_owned());
             browser_extension(&host, &user_id, &expected_key).await
+        }
+        Command::QuickUnlock => {
+            let account = Account::load(store.clone())
+                .await?
+                .context("not logged in")?;
+            account.unlock_with_password(&read_password()?).await?;
+            account.set_pin(Some("4711"))?;
+            account.lock().await;
+            println!(
+                "wrong pin: {:?}",
+                account
+                    .unlock_with_pin("0000")
+                    .await
+                    .err()
+                    .map(|e| e.to_string())
+            );
+            account.unlock_with_pin("4711").await?;
+            println!("right pin: {}", account.is_unlocked());
+            account.keep_key(true).await?;
+            account.lock().await;
+            account.unlock_with_kept_key().await?;
+            println!("kept key: {}", account.is_unlocked());
+            // A new process: the PIN works again only after the master password.
+            let again = Account::load(store).await?.context("not logged in")?;
+            println!("pin before password: {}", again.pin_ready());
+            again.unlock_with_password(&read_password()?).await?;
+            again.lock().await;
+            again.unlock_with_pin("4711").await?;
+            println!("pin after password: {}", again.is_unlocked());
+            again.set_pin(None)?;
+            println!("pin removed: {}", !again.has_pin());
+            Ok(())
         }
         Command::AddFolder { name } => {
             let account = Account::load(store).await?.context("not logged in")?;

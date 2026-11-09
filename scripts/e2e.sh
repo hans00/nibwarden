@@ -130,6 +130,7 @@ export GIT_CONFIG_GLOBAL=$TMP/gitconfig GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME=$T
 # (phase 1 behaviour); with it, a fake GUI answers unlock windows from a script and a fixed
 # display name makes the daemon believe it runs in a graphical session.
 mkdir "$TMP/gui"
+DAEMON_EXTRA=()
 start_daemon() {
     local display=() gui=()
     if [[ ${1:-} == gui ]]; then
@@ -138,7 +139,7 @@ start_daemon() {
     fi
     env PATH="$TMP/bin:$PATH" RUST_LOG=trace WAYLAND_DISPLAY= DISPLAY= "${display[@]}" \
         "$BIN/nibwardend" --data-dir "$TMP/data" --socket "$NIBWARDEN_SOCKET" \
-        "${gui[@]}" --sync-interval 0 >>"$TMP/daemon.log" 2>&1 &
+        "${gui[@]}" --sync-interval 0 "${DAEMON_EXTRA[@]}" >>"$TMP/daemon.log" 2>&1 &
     DAEMON=$!
     for _ in $(seq 50); do [[ -S $NIBWARDEN_SOCKET && -S $AGENT ]] && break; sleep 0.1; done
 }
@@ -373,6 +374,34 @@ OUT=$(printf '%s\n' "$MASTER" | script -qec "$N get Bank" /dev/null | tr -d '\r'
 [[ $OUT == *"Master password:"*"$BANK"* ]] && ok "reprompt item after a terminal unlock" \
     || fail "reprompt after tty unlock: [$OUT]"
 
+# --- token refresh after an unlock ---
+# The SDK's unlock saves the login method with an empty OAuth client; the server refuses
+# a token refresh without one, so sync would stop an hour after unlocking.
+login_client() {
+    python3 -I -c 'import json, sqlite3, sys
+db = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True)
+(value,) = db.execute("select value from Setting where key = ?", ("user_login_method",)).fetchone()
+print(json.loads(value)["Username"]["client_id"])' "$TMP/data/user.sqlite"
+}
+nw lock 2>/dev/null
+nw_unlock
+expect_eq "the login method keeps its client after an unlock" "$(login_client)" desktop
+
+# --- idle lock ---
+# Listing the items, which open windows do every few seconds, is not use of the vault:
+# it does not keep the vault unlocked. (The idle check runs every 10 s.)
+stop_daemon
+DAEMON_EXTRA=(--lock-timeout 2)
+start_daemon
+DAEMON_EXTRA=()
+nw_unlock || fail "unlock after restart"
+for _ in $(seq 30); do
+    nw list >/dev/null 2>&1 || true
+    [[ $(nw status --json | jq -r .state) == locked ]] && break
+    sleep 1
+done
+expect_eq "locks after inactivity while the items are listed" "$(nw status --json | jq -r .state)" locked
+
 # --- unlock window (fake GUI) ---
 # From here on the daemon has a (fake) desktop. It restarts locked, without having seen
 # any SSH keys.
@@ -506,18 +535,38 @@ expect_eq "extension of another account" "$(extension --user-id 00000000-0000-40
 expect_eq "... no window" "$(gui_log length)" 0
 rm "$TMP/gui/answers"
 
+# --- unlocking with a PIN or the system's authentication (phase2.md §12.19) ---
+expect_eq "PIN and kept key, through nibwarden-core" \
+    "$(NIBWARDEN_PASSWORD=$MASTER RUST_LOG=off $P quick-unlock 2>&1 | paste -sd '|')" \
+    'wrong pin: Some("wrong master password")|right pin: true|kept key: true|pin before password: false|pin after password: true|pin removed: true'
+expect_fail "only nibwarden's own windows set a PIN" 1 "settings window" -- \
+    scripts/e2e/ipc auth.set_pin '{"pin": "4711"}'
+expect_fail "no PIN set: unlocking with one is unavailable" 1 "master password first" -- \
+    scripts/e2e/ipc auth.unlock_pin '{"pin": "4711"}'
+expect_fail "icons only for domains" 1 "not a domain" -- scripts/e2e/ipc item.icon '{"domain": "a.com/../x"}'
+expect_eq "status: no quick unlock yet" "$(nw status --json | jq -c '[.pin_unlock, .system_unlock, .pin_set]')" \
+    '[false,false,false]'
+
 # --- ssh and git set up as the settings window does (SSH and Git) ---
 SC=$BH/.ssh/config
 mkdir -p "$BH/.ssh"
-printf 'Host work\n    IdentityAgent /tmp/other.sock\n' >"$SC"
+# As after using Bitwarden's or 1Password's agent: one host of its own, another for all.
+ORIGINAL=$(printf 'Host work\n    IdentityAgent /tmp/other.sock\nHost *\n    IdentityAgent /tmp/old-app.sock')
+printf '%s\n' "$ORIGINAL" >"$SC"
 SOCK=$(nw status --json | jq -r .ssh_agent_socket)
 HOME=$BH nw ssh agent-setup 2>/dev/null && HOME=$BH nw ssh agent-setup 2>/dev/null || fail "agent-setup"
 agent_for() { ssh -G -F "$SC" "$1" | awk '/^identityagent /{print $2}'; }
-expect_eq "agent-setup: ssh uses nibwarden's agent" "$(agent_for example.com)" "$SOCK"
+expect_eq "agent-setup: ssh uses nibwarden's agent, over the old one for every host" \
+    "$(agent_for example.com)" "$SOCK"
 expect_eq "... hosts with their own agent keep it" "$(agent_for work)" /tmp/other.sock
-expect_eq "... one block, however often" "$(grep -c IdentityAgent "$SC")" 2
+expect_eq "... one block, however often" "$(grep -c "^# Added by nibwarden" "$SC")" 1
+# Edited later so that another agent comes first: running it again puts it back in effect.
+{ printf 'IdentityAgent /tmp/later.sock\n'; cat "$SC"; } >"$SC.new" && mv "$SC.new" "$SC"
+HOME=$BH nw ssh agent-setup 2>/dev/null || fail "agent-setup again"
+expect_eq "agent-setup repairs a block no longer in effect" "$(agent_for example.com)" "$SOCK"
 HOME=$BH nw ssh agent-setup --remove 2>/dev/null
-expect_eq "agent-setup --remove restores the file" "$(cat "$SC")" "$(printf 'Host work\n    IdentityAgent /tmp/other.sock')"
+expect_eq "agent-setup --remove restores the file" "$(cat "$SC")" \
+    "$(printf 'IdentityAgent /tmp/later.sock\n%s' "$ORIGINAL")"
 nw ssh git-setup --global --key 'ssh ed25519' 2>/dev/null || fail "git-setup --global"
 expect_eq "git-setup --global" "$(git config --global gpg.format) $(git config --global commit.gpgsign)" "ssh true"
 GIT_CONFIG_GLOBAL=$TMP/gitconfig-noemail nw ssh git-setup --global --key 'ssh ed25519' 2>/dev/null \
@@ -525,6 +574,14 @@ GIT_CONFIG_GLOBAL=$TMP/gitconfig-noemail nw ssh git-setup --global --key 'ssh ed
 expect_eq "git-setup needs no user.email" \
     "$(GIT_CONFIG_GLOBAL=$TMP/gitconfig-noemail git config --global --get-regexp '^(gpg|commit)\.' | cut -d' ' -f1 | sort | paste -sd ' ')" \
     "commit.gpgsign gpg.format gpg.ssh.program"
+# A file the global config includes afterwards overrides it: refused, nothing changed.
+printf '[gpg]\n\tformat = openpgp\n' >"$TMP/gitconfig-inc"
+printf '[gpg]\n\tformat = openpgp\n[include]\n\tpath = %s\n' "$TMP/gitconfig-inc" >"$TMP/gitconfig-overridden"
+cp "$TMP/gitconfig-overridden" "$TMP/gitconfig-overridden.before"
+expect_fail "git-setup refuses a setup git would not use" 1 "gpg.format openpgp would still be used (from $TMP/gitconfig-inc)" -- \
+    env GIT_CONFIG_GLOBAL="$TMP/gitconfig-overridden" "$N" ssh git-setup --global --key 'ssh ed25519'
+cmp -s "$TMP/gitconfig-overridden" "$TMP/gitconfig-overridden.before" \
+    && ok "... and leaves the git config as it was" || fail "git config changed by a refused setup"
 nw ssh git-setup --remove 2>/dev/null || fail "git-setup --remove"
 expect_eq "git-setup --remove" "$(git config --global gpg.format || echo unset)" unset
 
@@ -715,6 +772,34 @@ for secret in "$MASTER" "$SECRET" "$API_KEY" "$TOTP_SECRET" "$GENERATED" "$GENER
 done
 ok "no secrets on disk, in the trace log, or in daemon argv"
 [[ $(wc -l <"$TMP/daemon.log") -gt 100 ]] && ok "trace log is actually verbose" || fail "trace log suspiciously short"
+
+# --- the server ends the login ---
+# A refresh token the server refuses (revoked, expired): sync gets 401, and the daemon logs
+# out as Bitwarden's clients do, remembering whose login ended for the windows.
+stop_daemon
+python3 -I -c 'import json, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+(value,) = db.execute("select value from Setting where key = ?", ("authentication_tokens",)).fetchone()
+tokens = json.loads(value)
+tokens.update(refresh_token="refused", expires_on=0)
+db.execute("update Setting set value = ? where key = ?", (json.dumps(tokens), "authentication_tokens"))
+db.commit()' "$TMP/data/user.sqlite"
+start_daemon
+nw_unlock 2>/dev/null || true
+nw sync >/dev/null 2>&1 || true
+for _ in $(seq 20); do
+    [[ $(nw status --json | jq -r .state) == logged_out ]] && break
+    sleep 0.5
+done
+expect_eq "a refused login logs out" "$(nw status --json | jq -c '[.state, .session_ended, .email]')" \
+    "$(jq -nc --arg e "$EMAIL" '["logged_out", true, $e]')"
+nw status | grep -qF "the server ended the login of $EMAIL" && ok "status says whose login ended" \
+    || fail "status does not say the login ended: $(nw status)"
+grep -q "the server ended the login" "$TMP/daemon.log" && ok "the daemon log says why" \
+    || fail "no log line for the ended login"
+printf '%s\n' "$MASTER" | setsid -w "$N" login --server "$SERVER" --email "$EMAIL" --password-stdin 2>/dev/null
+expect_eq "logging in again clears it" "$(nw status --json | jq -c '[.state, .session_ended]')" \
+    '["unlocked",false]'
 
 nw logout 2>/dev/null
 expect_eq "logout" "$(nw status --json | jq -r .state)" logged_out

@@ -158,16 +158,6 @@ pub(crate) async fn password(
         })
         .await
         .sdk("save tokens")?;
-    state
-        .setting(USER_LOGIN_METHOD)
-        .sdk("save login method")?
-        .update(UserLoginMethod::Username {
-            client_id: CLIENT_ID.to_owned(),
-            email: unlock.salt.clone(),
-            kdf: unlock.kdf.clone(),
-        })
-        .await
-        .sdk("save login method")?;
 
     client
         .crypto()
@@ -184,7 +174,38 @@ pub(crate) async fn password(
         })
         .await
         .sdk("unlock the account keys")?;
+    // Unlocking the keys saved the login method, without the client.
+    keep_client_id(client.platform()).await?;
     Ok(user_id)
+}
+
+/// The SDK's unlock saves the login method again with an empty OAuth client, and the
+/// server refuses a token refresh without one (`invalid_request`), so sync would stop an
+/// hour after unlocking. Put back after every unlock.
+pub(crate) async fn keep_client_id(
+    platform: bitwarden_core::platform::PlatformClient,
+) -> Result<(), Error> {
+    let setting = platform
+        .state()
+        .setting(USER_LOGIN_METHOD)
+        .sdk("read login method")?;
+    if let Some(UserLoginMethod::Username {
+        client_id,
+        email,
+        kdf,
+    }) = setting.get().await.sdk("read login method")?
+        && client_id != CLIENT_ID
+    {
+        setting
+            .update(UserLoginMethod::Username {
+                client_id: CLIENT_ID.to_owned(),
+                email,
+                kdf,
+            })
+            .await
+            .sdk("save login method")?;
+    }
+    Ok(())
 }
 
 /// Asks the server to email a new code for confirming this device.

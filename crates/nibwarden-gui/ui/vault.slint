@@ -12,6 +12,8 @@ export struct QuickItem {
     subtitle: string,
     folder: string,
     initial: string,
+    // The website's icon; empty when there is none (yet).
+    icon: image,
     has-username: bool,
     has-password: bool,
     has-totp: bool,
@@ -294,6 +296,7 @@ export component Row inherits Rectangle {
             width: 34px;
             height: 34px;
             initial: root.item.initial;
+            icon: root.item.icon;
         }
         VerticalLayout {
             alignment: center;
@@ -563,11 +566,20 @@ export global Vault {
     in-out property <UnlockError> error;
     in-out property <bool> busy;
     in-out property <string> password;
+    // Unlocking without the master password, where that works now; `use-pin`: the field
+    // takes the PIN.
+    in-out property <bool> pin-available;
+    in-out property <bool> system-available;
+    in-out property <bool> use-pin;
+    callback unlock-system();
+    // Logged out because the server ended this address's login; "" otherwise.
+    in-out property <string> session-ended-email;
     // The open item.
     in-out property <bool> item-open;
     in-out property <string> item-name;
     in-out property <string> item-folder;
     in-out property <string> item-initial;
+    in-out property <image> item-icon;
     in-out property <[ItemField]> fields;
     // `fields` in cards.
     in-out property <[FieldGroup]> groups;
@@ -639,6 +651,8 @@ export global Vault {
     callback open-field(int);
     callback reveal-field(int);
     callback unlock();
+    // After a copy, with "minimize after copy" on; the main window minimizes itself.
+    callback minimize-window();
     callback close();
     callback choose-category(int);
     callback lock();
@@ -806,6 +820,7 @@ export component ItemDetail inherits VerticalLayout {
                 width: 40px;
                 height: 40px;
                 initial: Vault.item-initial;
+                icon: Vault.item-icon;
             }
             VerticalLayout {
                 alignment: center;
@@ -969,8 +984,9 @@ export component UnlockPanel inherits VerticalLayout {
     Rectangle { height: 28px; }
     HorizontalLayout {
         alignment: center;
-        PasswordField {
+        field := PasswordField {
             width: min(440px, root.width - 80px);
+            placeholder: Vault.use-pin ? @tr("PIN") : @tr("Master password");
             text <=> Vault.password;
             enabled: !Vault.busy;
             busy: Vault.busy;
@@ -994,10 +1010,34 @@ export component UnlockPanel inherits VerticalLayout {
             color: Theme.danger;
         }
         if !Vault.busy && Vault.error != UnlockError.none: Text {
-            text: @tr("Wrong master password.");
+            text: Vault.error == UnlockError.wrong-pin ? @tr("Wrong PIN.")
+                : Vault.error == UnlockError.pin-suspended ? @tr("Too many wrong PINs. Enter the master password.")
+                : Vault.error == UnlockError.not-confirmed ? @tr("Not confirmed.")
+                : @tr("Wrong master password.");
             color: Theme.danger;
             font-size: Theme.font-small;
             vertical-alignment: center;
+        }
+    }
+    if Vault.pin-available || Vault.system-available: HorizontalLayout {
+        padding-top: 14px;
+        alignment: center;
+        spacing: 10px;
+        if Vault.system-available: Button {
+            text: @tr("Use system authentication");
+            enabled: !Vault.busy;
+            clicked => {
+                Vault.unlock-system();
+            }
+        }
+        if Vault.pin-available: Button {
+            text: Vault.use-pin ? @tr("Use master password") : @tr("Use PIN");
+            enabled: !Vault.busy;
+            clicked => {
+                Vault.use-pin = !Vault.use-pin;
+                Vault.password = "";
+                field.focus();
+            }
         }
     }
 }

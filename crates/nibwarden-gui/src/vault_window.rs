@@ -15,7 +15,7 @@ use crate::{Vault, VaultWindow, prompt, vault_ui};
 /// a sync, `nibwarden lock` in a terminal). A local socket round trip.
 const REFRESH: Duration = Duration::from_secs(3);
 
-pub fn run() -> ExitCode {
+pub fn run(started: std::time::Instant) -> ExitCode {
     // One main window; opening it again while it runs does nothing.
     let lock = paths::runtime_dir().and_then(|dir| {
         nibwarden_platform::fs::create_private_dir(&dir).ok()?;
@@ -32,6 +32,7 @@ pub fn run() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    crate::appearance::report_slow_start(ui.window(), started, started.elapsed());
     prompt::apply_appearance(&ui, &settings.appearance);
     let attached = vault_ui::attach(&ui, &settings);
     connect_frame(&ui);
@@ -94,6 +95,12 @@ fn connect_frame(ui: &VaultWindow) {
         }
     });
 
+    let weak = ui.as_weak();
+    vault.on_minimize_window(move || {
+        if let Some(ui) = weak.upgrade() {
+            ui.window().set_minimized(true);
+        }
+    });
     let weak = ui.as_weak();
     ui.on_minimize(move || {
         if let Some(ui) = weak.upgrade() {

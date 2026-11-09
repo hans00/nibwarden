@@ -18,6 +18,7 @@ pub mod native_messaging;
 pub mod notify;
 pub mod paths;
 pub mod peer;
+pub mod polkit;
 pub mod process;
 pub mod service;
 pub mod session_events;

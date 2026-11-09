@@ -317,6 +317,12 @@ fn layout(prefix: &Path) -> Result<Vec<Entry>> {
             gzip(&fs::read(&page)?)?,
         );
     }
+    // polkit reads actions from /usr/share only: a /usr/local install cannot unlock with
+    // the system's authentication without copying this there.
+    add(
+        "share/polkit-1/actions/me.hans00.nibwarden.policy",
+        read("packaging/polkit/me.hans00.nibwarden.policy")?,
+    );
     add(
         "share/doc/nibwarden/examples/60-nibwarden-ssh-agent.conf",
         read("packaging/environment.d/60-nibwarden-ssh-agent.conf")?,

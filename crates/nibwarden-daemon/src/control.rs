@@ -254,6 +254,31 @@ impl Connection {
             }
             Request::Logout => daemon.logout().await.map(|()| Value::Null),
             Request::Unlock { password } => daemon.unlock(&password).await.map(|()| Value::Null),
+            Request::UnlockPin { pin } => daemon.unlock_with_pin(&pin).await.map(|()| Value::Null),
+            Request::UnlockSystem => {
+                let pid = self.peer.pid.ok_or_else(|| {
+                    ErrorBody::new(ErrorCode::Unavailable, "the caller's process is unknown")
+                })?;
+                daemon
+                    .unlock_with_system(pid as u32)
+                    .await
+                    .map(|()| Value::Null)
+            }
+            Request::SetPin { pin } => {
+                // A PIN set by any program could later unlock the vault without the user.
+                if !daemon.prompts.is_own_gui(&self.peer) {
+                    return Err(ErrorBody::new(
+                        ErrorCode::Denied,
+                        "a PIN is set in nibwarden's settings window",
+                    ));
+                }
+                let account = daemon.in_use().await?;
+                account
+                    .set_pin(pin.as_deref().map(String::as_str))
+                    .map_err(to_ipc)?;
+                tracing::info!(on = pin.is_some(), "unlock PIN changed");
+                Ok(Value::Null)
+            }
             Request::UnlockPrompt => daemon
                 .prompts
                 .unlock(&daemon, &self.peer)
@@ -307,6 +332,7 @@ impl Connection {
             }
             Request::ReloadConfig => {
                 daemon.reload_config();
+                daemon.apply_unlock_settings().await;
                 Ok(Value::Null)
             }
             Request::CanPrompt => to_value(CanPromptResult {
@@ -578,6 +604,13 @@ impl Connection {
                     items: imported.items as u32,
                     folders: imported.folders as u32,
                 })
+            }
+            Request::ItemIcon { domain } => {
+                use base64::Engine as _;
+                let image = daemon.icon(&domain).await?.map(|bytes| {
+                    base64::engine::general_purpose::STANDARD.encode(bytes.as_slice())
+                });
+                to_value(nibwarden_ipc::IconResult { image })
             }
             Request::BrowserMessage { message } => {
                 crate::browser::handle(&daemon, &self.peer, message).await

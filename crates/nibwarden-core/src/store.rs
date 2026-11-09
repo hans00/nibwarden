@@ -16,6 +16,7 @@ use crate::{Error, error::SdkContext as _, file_repository::FileRepository};
 const DEVICE_ID_FILE: &str = "device-id";
 const UNLOCK_FILE: &str = "unlock.json";
 const LOCAL_USER_DATA_KEY_FILE: &str = "local-user-data-key.json";
+pub(crate) const PIN_FILE: &str = "pin";
 const SDK_DB_NAME: &str = "user";
 
 /// On-disk layout of one nibwarden data directory:
@@ -27,6 +28,9 @@ const SDK_DB_NAME: &str = "user";
 ///   KDF settings, salt and the master-key-wrapped user key.
 /// - `local-user-data-key.json`: client-managed SDK item, the local-data key wrapped by
 ///   the user key (encrypts e.g. generator history).
+/// - `pin`: the unlock PIN encrypted with the user key, so that unlocking with the master
+///   password once makes the PIN work again (as Bitwarden's "require master password on
+///   restart"). No use without the user key.
 #[derive(Debug, Clone)]
 pub struct Store {
     dir: PathBuf,
@@ -48,6 +52,25 @@ impl Store {
         let store = Self { dir };
         crate::platform::init(&store.device_id()?);
         Ok(store)
+    }
+
+    pub(crate) fn read_pin(&self) -> Result<Option<String>, Error> {
+        match fs::read_to_string(self.dir.join(PIN_FILE)) {
+            Ok(text) => Ok(Some(text.trim().to_owned())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub(crate) fn write_pin(&self, encrypted_pin: Option<&str>) -> Result<(), Error> {
+        let path = self.dir.join(PIN_FILE);
+        match encrypted_pin {
+            Some(pin) => write_private(&path, pin.as_bytes()),
+            None => match fs::remove_file(path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+                _ => Ok(()),
+            },
+        }
     }
 
     pub fn dir(&self) -> &Path {
@@ -104,7 +127,7 @@ impl Store {
 
     /// Removes the files nibwarden owns (the SDK database is wiped through the registry).
     pub(crate) fn remove_local_files(&self) -> Result<(), Error> {
-        for name in [UNLOCK_FILE, LOCAL_USER_DATA_KEY_FILE] {
+        for name in [UNLOCK_FILE, LOCAL_USER_DATA_KEY_FILE, PIN_FILE] {
             match fs::remove_file(self.dir.join(name)) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
                 _ => {}

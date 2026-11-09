@@ -63,8 +63,12 @@ pub fn run(started: Instant) -> ExitCode {
             access,
             application,
             scope,
+            quick,
         } => unlock_window(&appearance, started, answers, |ui| {
             show_unlock(ui, &email, &waiting);
+            ui.set_pin_available(quick.pin);
+            ui.set_use_pin(quick.pin);
+            ui.set_system_available(quick.system);
             match &access {
                 Some(access) => {
                     ui.set_mode(UnlockMode::UnlockAllow);
@@ -282,11 +286,36 @@ fn unlock_window(
         ui.set_busy(true);
         let all_applications =
             ui.get_mode() == UnlockMode::UnlockAllow && ui.get_all_applications();
-        let _ = tx.send(Answer::Password {
-            password,
-            all_applications,
+        let _ = tx.send(if ui.get_use_pin() {
+            Answer::Pin {
+                pin: password,
+                all_applications,
+            }
+        } else {
+            Answer::Password {
+                password,
+                all_applications,
+            }
         });
     });
+    let weak = ui.as_weak();
+    let tx = answers.clone();
+    let system = move || {
+        let Some(ui) = weak.upgrade() else { return };
+        if ui.get_busy() {
+            return;
+        }
+        ui.set_error(UnlockError::None);
+        ui.set_busy(true);
+        let all_applications =
+            ui.get_mode() == UnlockMode::UnlockAllow && ui.get_all_applications();
+        let _ = tx.send(Answer::System { all_applications });
+    };
+    ui.on_system(system.clone());
+    // As Bitwarden does: the system asks right away; cancelling it leaves the field.
+    if ui.get_system_available() {
+        slint::Timer::single_shot(Duration::from_millis(300), system);
+    }
     let tx = answers.clone();
     ui.on_cancel(move || {
         let _ = tx.send(Answer::Cancel);
@@ -391,6 +420,13 @@ fn on_event(event: Event) {
             Event::Retry(reason) => {
                 ui.set_error(match reason {
                     RetryReason::WrongPassword => UnlockError::WrongPassword,
+                    RetryReason::WrongPin => UnlockError::WrongPin,
+                    RetryReason::PinSuspended => {
+                        ui.set_pin_available(false);
+                        ui.set_use_pin(false);
+                        UnlockError::PinSuspended
+                    }
+                    RetryReason::NotConfirmed => UnlockError::NotConfirmed,
                 });
                 ui.set_busy(false);
             }

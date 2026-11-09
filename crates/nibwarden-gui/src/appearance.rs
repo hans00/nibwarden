@@ -42,32 +42,122 @@ const APP_ID: &str = "nibwarden";
 /// rendering remains the fallback without OpenGL. `SLINT_BACKEND` still overrides.
 /// Every window gets the app id `nibwarden`, so the desktop shows the entry's icon.
 pub fn select_renderer() {
+    take_launch();
     if std::env::var_os("SLINT_BACKEND").is_some() {
         // Chosen by the variable; selected now, as the app id needs a platform. A failure
         // is said here: the window would only report that winit cannot start again.
-        match slint::BackendSelector::new().select() {
-            Ok(()) => drop(slint::set_xdg_app_id(APP_ID)),
+        match slint::BackendSelector::new()
+            .with_winit_window_attributes_hook(with_launch_token)
+            .select()
+        {
+            Ok(()) => selected(),
             Err(e) => eprintln!("nibwarden-gui: cannot open windows: {e}"),
         }
         return;
     }
     // Choosing femtovg succeeds even without a driver; it fails only when its window
     // opens, and then there is no window. So the driver is asked first.
-    let renderer = if nibwarden_platform::display::opengl_available() {
-        "femtovg"
-    } else {
-        "software"
-    };
+    let probing = std::time::Instant::now();
+    let opengl = nibwarden_platform::display::opengl_available();
+    let _ = PROBED.set(probing.elapsed());
+    let renderer = if opengl { "femtovg" } else { "software" };
     match slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name(renderer.into())
+        .with_winit_window_attributes_hook(with_launch_token)
         .select()
     {
-        Ok(()) => drop(slint::set_xdg_app_id(APP_ID)),
+        Ok(()) => selected(),
         // The failed attempt used up winit's one event loop per process, so the software
         // renderer needs a fresh process.
         Err(e) if renderer == "femtovg" => restart_in_software(&e.to_string()),
         Err(e) => eprintln!("nibwarden-gui: cannot open windows: {e}"),
+    }
+}
+
+/// How long asking for OpenGL took, and whether the desktop gave a launch token; for
+/// `report_slow_start`.
+static PROBED: std::sync::OnceLock<std::time::Duration> = std::sync::OnceLock::new();
+static LAUNCHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A slow first frame keeps the desktop's busy cursor up, so one that takes longer than
+/// this says where the time went (on stderr, which is the journal for a launched app).
+const SLOW_START: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// Says on stderr where the time went when `window`'s first frame comes late after
+/// `started` (the program's start); `created`: when the window was made.
+pub fn report_slow_start(
+    window: &slint::Window,
+    started: std::time::Instant,
+    created: std::time::Duration,
+) {
+    // `NIBWARDEN_GUI_TIMING` reports every start, as the unlock window does.
+    let always = std::env::var_os("NIBWARDEN_GUI_TIMING").is_some();
+    let report = move |what: &str| {
+        let shown = started.elapsed();
+        if always || shown >= SLOW_START {
+            let probe = PROBED.get().copied().unwrap_or_default();
+            let token = LAUNCHED.load(std::sync::atomic::Ordering::Relaxed);
+            eprintln!(
+                "nibwarden-gui: {what} after {shown:?} (OpenGL check {probe:?}, \
+                 window made after {created:?}, launch token: {token})"
+            );
+        }
+    };
+    let mut reported = false;
+    let notifier = window.set_rendering_notifier(move |state, _| {
+        if !reported && matches!(state, slint::RenderingState::AfterRendering) {
+            reported = true;
+            report("first frame");
+        }
+    });
+    // The software renderer has no notifier; the event loop running is close enough.
+    if notifier.is_err() {
+        slint::Timer::single_shot(std::time::Duration::ZERO, move || report("window shown"));
+    }
+}
+
+/// The desktop's token for the launch that started this program (Wayland
+/// `XDG_ACTIVATION_TOKEN`, X11 `DESKTOP_STARTUP_ID`). The first window hands it back, which
+/// tells the desktop the launch is done; until then GNOME shows a busy cursor and counts
+/// the app as starting.
+static LAUNCH_TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// What the desktop put in the environment about this launch.
+const LAUNCH_VARIABLES: &[&str] = &[
+    "XDG_ACTIVATION_TOKEN",
+    "DESKTOP_STARTUP_ID",
+    "GIO_LAUNCHED_DESKTOP_FILE",
+    "GIO_LAUNCHED_DESKTOP_FILE_PID",
+];
+
+fn take_launch() {
+    let token = ["XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID"]
+        .iter()
+        .find_map(|var| std::env::var(var).ok().filter(|t| !t.is_empty()));
+    LAUNCHED.store(token.is_some(), std::sync::atomic::Ordering::Relaxed);
+    *LAUNCH_TOKEN.lock().expect("poisoned") = token;
+}
+
+fn with_launch_token(
+    attributes: slint::winit_030::winit::window::WindowAttributes,
+) -> slint::winit_030::winit::window::WindowAttributes {
+    use slint::winit_030::winit::{
+        platform::startup_notify::WindowAttributesExtStartupNotify as _, window::ActivationToken,
+    };
+    match LAUNCH_TOKEN.lock().expect("poisoned").take() {
+        Some(token) => attributes.with_activation_token(ActivationToken::from_raw(token)),
+        None => attributes,
+    }
+}
+
+/// The backend is chosen: the launch is no longer needed in the environment, where the
+/// programs started from here (the tray icon, the settings) would pass for it.
+fn selected() {
+    drop(slint::set_xdg_app_id(APP_ID));
+    for var in LAUNCH_VARIABLES {
+        // SAFETY: called first thing in `main`, before any other thread is started.
+        unsafe { std::env::remove_var(var) };
     }
 }
 

@@ -7,6 +7,7 @@ use std::{
 };
 
 use nibwarden_config::integration::{
+    Overridden,
     git::{self, Scope},
     ssh,
 };
@@ -18,8 +19,9 @@ use crate::SettingsWindow;
 /// The vault's SSH keys as last listed, in the order the window shows them.
 type Keys = Arc<Mutex<Vec<SshKeyEntry>>>;
 
+/// Shows what is in effect: a switch is on only when ssh or git really uses nibwarden.
 pub fn show(ui: &SettingsWindow) {
-    ui.set_ssh_agent(ssh::uses_nibwarden());
+    ui.set_ssh_agent(ssh::agent() == ssh::Agent::On);
     ui.set_ssh_other_agent(ssh::other_agent().unwrap_or_default().into());
     ui.set_git_signing(git::signing_key().is_some());
 }
@@ -32,15 +34,27 @@ pub fn connect(ui: &SettingsWindow) {
     let weak = ui.as_weak();
     ui.on_ssh_agent_changed(move |on| {
         let Some(ui) = weak.upgrade() else { return };
+        ui.set_ssh_failed(SharedString::new());
         let done = if on {
-            agent_socket()
-                .and_then(|socket| ssh::set_agent(Some(&socket)).map_err(|e| e.to_string()))
+            agent_socket().and_then(|socket| {
+                ssh::set_agent(Some(&socket)).map_err(|e| match Overridden::of(&e) {
+                    Some(o) => {
+                        ui.set_ssh_failed(o.value.as_str().into());
+                        String::new()
+                    }
+                    None => e.to_string(),
+                })
+            })
         } else {
             ssh::set_agent(None).map_err(|e| e.to_string())
         };
-        if let Err(e) = done {
-            ui.set_error(format!("cannot change ~/.ssh/config: {e}").into());
+        match done {
+            Err(e) if !e.is_empty() => {
+                ui.set_error(format!("cannot change ~/.ssh/config: {e}").into())
+            }
+            _ => ui.set_error(SharedString::new()),
         }
+        // Back to off if it did not take effect.
         show(&ui);
     });
 
@@ -48,6 +62,7 @@ pub fn connect(ui: &SettingsWindow) {
     let all = keys.clone();
     ui.on_git_signing_changed(move |on| {
         let Some(ui) = weak.upgrade() else { return };
+        ui.set_git_failed(SharedString::new());
         if !on {
             if let Err(e) = git::unset_signing() {
                 ui.set_error(format!("cannot change the git config: {e}").into());
@@ -85,10 +100,15 @@ fn sign_with(ui: &SettingsWindow, key: &SshKeyEntry) {
         .ok()
         .filter(|h| h.exists())
         .unwrap_or_else(|| PathBuf::from("nibwarden-ssh-sign"));
+    ui.set_git_failed(SharedString::new());
     match git::set_signing(Scope::Global, &key.name, &key.public_key, &helper) {
         Ok(_) => ui.set_error(SharedString::new()),
-        Err(e) => ui.set_error(e.to_string().into()),
+        Err(e) => match Overridden::of(&e) {
+            Some(o) => ui.set_git_failed(o.setting.as_str().into()),
+            None => ui.set_error(e.to_string().into()),
+        },
     }
+    // Back to off if it did not take effect.
     show(ui);
 }
 
@@ -163,7 +183,7 @@ fn load_keys(
     });
 }
 
-async fn connect_daemon() -> Result<Client, String> {
+pub(crate) async fn connect_daemon() -> Result<Client, String> {
     let socket = std::env::var_os("NIBWARDEN_SOCKET")
         .map(PathBuf::from)
         .or_else(nibwarden_ipc::default_socket_path)
@@ -174,7 +194,9 @@ async fn connect_daemon() -> Result<Client, String> {
 }
 
 /// Runs `work` on a runtime of its own; `Ok(None)` if no runtime could be made.
-fn block_on<T>(work: impl Future<Output = Result<T, String>>) -> Result<Option<T>, String> {
+pub(crate) fn block_on<T>(
+    work: impl Future<Output = Result<T, String>>,
+) -> Result<Option<T>, String> {
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

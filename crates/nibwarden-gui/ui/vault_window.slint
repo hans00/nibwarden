@@ -9,7 +9,7 @@ import { ItemEditor } from "editor.slint";
 import { GeneratorDialog } from "generator.slint";
 import { SendEditor, SendList, SendPane, Sends } from "send.slint";
 import { ExportDialog, ImportDialog, Transfer, TransferDone, TransferMenu } from "transfer.slint";
-import { AccountPanel } from "account.slint";
+import { Account, AccountPage, AccountPanel } from "account.slint";
 
 // The menu under the account in the sidebar.
 component AccountMenu inherits Rectangle {
@@ -789,6 +789,13 @@ export component VaultWindow inherits Window {
                 }
                 if Vault.state == QuickState.message && Vault.notice == QuickNotice.logged-out: AccountPanel {
                     vertical-stretch: 1;
+                    init => {
+                        if Vault.session-ended-email != "" {
+                            Account.page = AccountPage.sign-in;
+                            Account.email = Vault.session-ended-email;
+                            Account.error = Account.message("session-ended");
+                        }
+                    }
                 }
                 if Vault.state == QuickState.loading || (Vault.state == QuickState.message && Vault.notice != QuickNotice.logged-out): MessagePanel {
                     vertical-stretch: 1;

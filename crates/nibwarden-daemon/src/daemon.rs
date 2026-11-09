@@ -38,6 +38,8 @@ pub struct Daemon {
     /// Boot-clock time of the last request that used the unlocked vault.
     last_activity: Mutex<Duration>,
     last_sync: Mutex<Option<SystemTime>>,
+    /// Whose login the server ended (`Error::SessionEnded`), until the next login.
+    ended: Mutex<Option<String>>,
     /// Public SSH keys as of the last time the vault was unlocked, so the agent can offer
     /// them while locked and ask for the master password only when a key is actually
     /// used (phase2.md §5.3). Public keys are not secret; kept in memory only.
@@ -48,6 +50,11 @@ pub struct Daemon {
     pub approvals: Approvals,
     pub prompts: PromptBroker,
     pub browser: crate::browser::BrowserChannels,
+    /// Website icons fetched so far, by domain (`None`: the service has none); kept until
+    /// the daemon ends.
+    icons: AsyncMutex<std::collections::HashMap<String, Option<Arc<Vec<u8>>>>>,
+    /// Wrong PINs in a row.
+    pin_failures: Mutex<u32>,
 }
 
 impl Daemon {
@@ -69,12 +76,15 @@ impl Daemon {
             logged_in: tokio::sync::Notify::new(),
             last_activity: Mutex::new(nibwarden_platform::clock::since_boot()),
             last_sync: Mutex::new(None),
+            ended: Mutex::new(None),
             ssh_keys_seen: Mutex::new(None),
             prompts: PromptBroker::new(config.gui.clone()),
             config,
             lock_settings: Mutex::new(settings.lock),
             approvals: Approvals::new(settings.approval),
             browser: Default::default(),
+            icons: Default::default(),
+            pin_failures: Mutex::new(0),
         }))
     }
 
@@ -105,6 +115,29 @@ impl Daemon {
             .ok_or_else(|| ErrorBody::new(ErrorCode::LoggedOut, "not logged in"))
     }
 
+    /// The icon of `domain`, from the icon service of the account's server.
+    pub async fn icon(&self, domain: &str) -> Result<Option<Arc<Vec<u8>>>, ErrorBody> {
+        let domain = domain.to_ascii_lowercase();
+        if !nibwarden_core::valid_domain(&domain) {
+            return Err(ErrorBody::new(ErrorCode::BadRequest, "not a domain"));
+        }
+        if let Some(known) = self.icons.lock().await.get(&domain) {
+            return Ok(known.clone());
+        }
+        let base =
+            nibwarden_core::icons_url(&self.current().await?.api_url().await.map_err(to_ipc)?);
+        let icon = match nibwarden_core::fetch_icon(&base, &domain).await {
+            Ok(icon) => icon.map(Arc::new),
+            // Unreachable now; ask again next time.
+            Err(e) => {
+                tracing::debug!(domain, error = %e, "no icon");
+                return Ok(None);
+            }
+        };
+        self.icons.lock().await.insert(domain, icon.clone());
+        Ok(icon)
+    }
+
     /// The logged-in account, locked or not.
     pub async fn account(&self) -> Option<Arc<Account>> {
         self.account.read().await.clone()
@@ -129,13 +162,18 @@ impl Daemon {
             .as_ref()
             .map(|p| p.display().to_string());
         let Some(account) = account else {
+            let ended = self.ended.lock().expect("poisoned").clone();
             return StatusResult {
                 state: LockState::LoggedOut,
-                email: None,
+                session_ended: ended.is_some(),
+                email: ended,
                 server: None,
                 last_sync: None,
                 lock_timeout,
                 ssh_agent_socket,
+                pin_unlock: false,
+                system_unlock: false,
+                pin_set: false,
             };
         };
         StatusResult {
@@ -149,6 +187,10 @@ impl Daemon {
             last_sync,
             lock_timeout,
             ssh_agent_socket,
+            pin_unlock: account.pin_ready(),
+            system_unlock: account.key_kept() && nibwarden_platform::polkit::available().await,
+            pin_set: account.has_pin(),
+            session_ended: false,
         }
     }
 
@@ -171,6 +213,7 @@ impl Daemon {
                 .await
                 .map_err(to_ipc)?;
         tracing::info!(email, "logged in");
+        *self.ended.lock().expect("poisoned") = None;
         self.logged_in.notify_waiters();
         *self.last_sync.lock().expect("poisoned") = Some(SystemTime::now());
         *self.account.write().await = Some(Arc::new(account));
@@ -200,6 +243,101 @@ impl Daemon {
             .unlock_with_password(password)
             .await
             .map_err(to_ipc)?;
+        *self.pin_failures.lock().expect("poisoned") = 0;
+        // Ready for the system's authentication from now on, if that is on.
+        if nibwarden_config::load().unlock.system
+            && let Err(e) = account.keep_key(true).await
+        {
+            tracing::warn!(error = %e, "cannot keep the key for system authentication");
+        }
+        self.unlocked();
+        Ok(())
+    }
+
+    /// Unlocks with the PIN. Five wrong ones in a row and it stops working until the
+    /// master password unlocks again, as in Bitwarden.
+    pub async fn unlock_with_pin(self: &Arc<Self>, pin: &str) -> Result<(), ErrorBody> {
+        const ATTEMPTS: u32 = 5;
+        let account = self.current().await?;
+        if !account.pin_ready() {
+            return Err(ErrorBody::new(
+                ErrorCode::Unavailable,
+                "the PIN needs the master password first",
+            ));
+        }
+        match account.unlock_with_pin(pin).await {
+            Ok(()) => {
+                *self.pin_failures.lock().expect("poisoned") = 0;
+                self.unlocked();
+                Ok(())
+            }
+            Err(nibwarden_core::Error::WrongPassword) => {
+                let failures = {
+                    let mut failures = self.pin_failures.lock().expect("poisoned");
+                    *failures += 1;
+                    *failures
+                };
+                if failures >= ATTEMPTS {
+                    account.suspend_pin();
+                    tracing::info!("PIN suspended after {ATTEMPTS} wrong ones");
+                }
+                Err(ErrorBody::new(ErrorCode::Denied, "wrong PIN"))
+            }
+            Err(e) => Err(to_ipc(e)),
+        }
+    }
+
+    /// Unlocks once the system confirmed the user, asking it for the process `pid` (the
+    /// window the user is in).
+    pub async fn unlock_with_system(self: &Arc<Self>, pid: u32) -> Result<(), ErrorBody> {
+        let account = self.current().await?;
+        if !account.key_kept() {
+            return Err(ErrorBody::new(
+                ErrorCode::Unavailable,
+                "this needs the master password first",
+            ));
+        }
+        match nibwarden_platform::polkit::authenticate(pid).await {
+            Ok(true) => {
+                account.unlock_with_kept_key().await.map_err(to_ipc)?;
+                self.unlocked();
+                Ok(())
+            }
+            Ok(false) => Err(ErrorBody::new(ErrorCode::Denied, "not confirmed")),
+            Err(e) => {
+                tracing::warn!(error = %e, "system authentication failed");
+                Err(ErrorBody::new(
+                    ErrorCode::Unavailable,
+                    format!("the system cannot confirm you: {e}"),
+                ))
+            }
+        }
+    }
+
+    /// The ways to unlock besides the master password that work now: (PIN, system).
+    pub async fn quick_unlock(&self) -> (bool, bool) {
+        let Some(account) = self.account().await else {
+            return (false, false);
+        };
+        let system = account.key_kept() && nibwarden_platform::polkit::available().await;
+        (account.pin_ready(), system)
+    }
+
+    /// After the settings changed: keeps or forgets the key for system authentication.
+    pub async fn apply_unlock_settings(&self) {
+        let Some(account) = self.account().await else {
+            return;
+        };
+        let on = nibwarden_config::load().unlock.system;
+        if on == account.key_kept() || (on && !account.is_unlocked()) {
+            return;
+        }
+        if let Err(e) = account.keep_key(on).await {
+            tracing::warn!(error = %e, "cannot change system authentication");
+        }
+    }
+
+    fn unlocked(self: &Arc<Self>) {
         self.touch();
         tracing::info!("unlocked");
         let daemon = self.clone();
@@ -212,7 +350,6 @@ impl Daemon {
                 tracing::debug!(error = %e, "cannot list SSH keys after unlock");
             }
         });
-        Ok(())
     }
 
     pub async fn lock(&self) -> Result<(), ErrorBody> {
@@ -228,7 +365,32 @@ impl Daemon {
 
     /// Where to listen for change notifications (`push_sync`).
     pub async fn push_endpoint(&self) -> Result<nibwarden_core::PushEndpoint, ErrorBody> {
-        self.current().await?.push_endpoint().await.map_err(to_ipc)
+        let account = self.current().await?;
+        match account.push_endpoint().await {
+            Err(nibwarden_core::Error::SessionEnded) => Err(self.end_session(account).await),
+            other => other.map_err(to_ipc),
+        }
+    }
+
+    /// The server no longer accepts `account`'s login: logs out, as Bitwarden's clients
+    /// do, and remembers whose login it was so the windows can ask to log in again.
+    async fn end_session(&self, account: Arc<Account>) -> ErrorBody {
+        let current = self
+            .account
+            .read()
+            .await
+            .as_ref()
+            .is_some_and(|a| Arc::ptr_eq(a, &account));
+        // Not a login made since.
+        if current {
+            tracing::warn!("the server ended the login; logging out");
+            *self.ended.lock().expect("poisoned") = Some(account.email().to_owned());
+            drop(account);
+            if let Err(e) = self.logout().await {
+                return e;
+            }
+        }
+        to_ipc(nibwarden_core::Error::SessionEnded)
     }
 
     /// Checks the master password without changing the lock state (reprompt items).
@@ -241,22 +403,25 @@ impl Daemon {
 
     pub async fn sync(&self, force: bool) -> Result<bool, ErrorBody> {
         let account = self.current().await?;
-        let ran = account.sync(force).await.map_err(to_ipc)?;
+        let ran = match account.sync(force).await {
+            Err(nibwarden_core::Error::SessionEnded) => {
+                return Err(self.end_session(account).await);
+            }
+            other => other.map_err(to_ipc)?,
+        };
         *self.last_sync.lock().expect("poisoned") = Some(SystemTime::now());
         Ok(ran)
     }
 
-    /// Using the unlocked vault counts as activity for the idle timer; a failed attempt
-    /// (e.g. locked) does not.
+    /// Not activity for the idle timer: open windows list the items every few seconds to
+    /// follow changes, which would keep the vault unlocked for as long as one is open.
+    /// Opening an item, reading or copying a field is.
     pub async fn list_items(&self, trash: bool) -> Result<Vec<ItemSummary>, ErrorBody> {
-        let items = self
-            .current()
+        self.current()
             .await?
             .list_items(trash)
             .await
-            .map_err(to_ipc)?;
-        self.touch();
-        Ok(items)
+            .map_err(to_ipc)
     }
 
     pub async fn read_field(&self, query: ItemQuery<'_>, field: &str) -> Result<Secret, ErrorBody> {
@@ -343,13 +508,24 @@ impl Daemon {
 
             if let Some(timeout) = self.lock_timeout() {
                 let idle = now.saturating_sub(*self.last_activity.lock().expect("poisoned"));
+                let logout =
+                    self.lock_settings().idle_action == nibwarden_config::IdleAction::Logout;
                 if idle >= timeout
                     && let Ok(account) = self.current().await
-                    && account.is_unlocked()
                 {
-                    account.lock().await;
-                    self.approvals.clear();
-                    tracing::info!(idle_secs = idle.as_secs(), "locked after inactivity");
+                    if logout {
+                        match self.logout().await {
+                            Ok(()) => tracing::info!(
+                                idle_secs = idle.as_secs(),
+                                "logged out after inactivity"
+                            ),
+                            Err(e) => tracing::warn!(error = %e, "cannot log out after inactivity"),
+                        }
+                    } else if account.is_unlocked() {
+                        account.lock().await;
+                        self.approvals.clear();
+                        tracing::info!(idle_secs = idle.as_secs(), "locked after inactivity");
+                    }
                 }
             }
 
