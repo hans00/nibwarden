@@ -84,111 +84,14 @@ impl AsyncWrite for Stream {
     }
 }
 
-#[cfg(target_os = "linux")]
-pub(crate) mod imp {
-    use std::{fs, io, os::unix::fs::PermissionsExt as _, path::Path};
-
-    pub use tokio::net::{UnixListener as Listener, UnixStream as Stream};
-
-    pub async fn bind(path: &Path) -> io::Result<Listener> {
-        let dir = path.parent().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "socket path has no parent")
-        })?;
-        crate::fs::create_private_dir(dir)?;
-        if path.exists() {
-            if Stream::connect(path).await.is_ok() {
-                return Err(io::Error::new(
-                    io::ErrorKind::AddrInUse,
-                    format!("another process is already listening on {}", path.display()),
-                ));
-            }
-            fs::remove_file(path)?;
-        }
-        let listener = Listener::bind(path)?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-        Ok(listener)
-    }
-
-    pub async fn accept(listener: &Listener) -> io::Result<Stream> {
-        Ok(listener.accept().await?.0)
-    }
-
-    pub async fn connect(path: &Path) -> io::Result<Stream> {
-        Stream::connect(path).await
-    }
-
-    pub fn pair() -> io::Result<(Stream, Stream)> {
-        Stream::pair()
-    }
-
-    pub fn remove(path: &Path) {
-        let _ = fs::remove_file(path);
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) mod imp {
-    use std::{
-        io,
-        path::Path,
-        pin::Pin,
-        task::{Context, Poll},
-    };
-
-    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-
-    use crate::unsupported;
-
-    /// No value of these types can exist until the platform is ported.
-    pub enum Listener {}
-    pub enum Stream {}
-
-    pub async fn bind(_: &Path) -> io::Result<Listener> {
-        Err(unsupported())
-    }
-
-    pub async fn accept(listener: &Listener) -> io::Result<Stream> {
-        match *listener {}
-    }
-
-    pub async fn connect(_: &Path) -> io::Result<Stream> {
-        Err(unsupported())
-    }
-
-    pub fn pair() -> io::Result<(Stream, Stream)> {
-        Err(unsupported())
-    }
-
-    pub fn remove(_: &Path) {}
-
-    impl AsyncRead for Stream {
-        fn poll_read(
-            self: Pin<&mut Self>,
-            _: &mut Context<'_>,
-            _: &mut ReadBuf<'_>,
-        ) -> Poll<io::Result<()>> {
-            match *self {}
-        }
-    }
-
-    impl AsyncWrite for Stream {
-        fn poll_write(
-            self: Pin<&mut Self>,
-            _: &mut Context<'_>,
-            _: &[u8],
-        ) -> Poll<io::Result<usize>> {
-            match *self {}
-        }
-
-        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-            match *self {}
-        }
-
-        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-            match *self {}
-        }
-    }
-}
+#[cfg_attr(target_os = "linux", path = "linux/transport.rs")]
+#[cfg_attr(target_os = "macos", path = "macos/transport.rs")]
+#[cfg_attr(windows, path = "windows/transport.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/transport.rs"
+)]
+pub(crate) mod imp;
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {

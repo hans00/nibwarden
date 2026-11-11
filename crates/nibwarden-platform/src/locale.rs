@@ -18,34 +18,14 @@ pub fn normalize(tag: &str) -> Option<String> {
     })
 }
 
-#[cfg(target_os = "linux")]
-mod imp {
-    /// gettext's order: `LANGUAGE` (a colon-separated list) unless the locale is C, then
-    /// `LC_ALL`, `LC_MESSAGES`, `LANG`.
-    pub fn preferred_languages() -> Vec<String> {
-        let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-        let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
-            .iter()
-            .find_map(|v| var(v));
-        let mut tags: Vec<String> = Vec::new();
-        if locale.as_deref().and_then(super::normalize).is_some()
-            && let Some(list) = var("LANGUAGE")
-        {
-            tags.extend(list.split(':').filter_map(super::normalize));
-        }
-        tags.extend(locale.as_deref().and_then(super::normalize));
-        let mut seen = std::collections::HashSet::new();
-        tags.retain(|t| seen.insert(t.clone()));
-        tags
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-mod imp {
-    pub fn preferred_languages() -> Vec<String> {
-        Vec::new()
-    }
-}
+#[cfg_attr(target_os = "linux", path = "linux/locale.rs")]
+#[cfg_attr(target_os = "macos", path = "macos/locale.rs")]
+#[cfg_attr(windows, path = "windows/locale.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/locale.rs"
+)]
+mod imp;
 
 #[cfg(test)]
 mod tests {

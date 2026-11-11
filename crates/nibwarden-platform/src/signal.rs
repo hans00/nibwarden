@@ -5,24 +5,11 @@ pub async fn shutdown_requested() -> std::io::Result<()> {
     imp::shutdown_requested().await
 }
 
-#[cfg(target_os = "linux")]
-mod imp {
-    use tokio::signal::unix::{SignalKind, signal};
-
-    pub async fn shutdown_requested() -> std::io::Result<()> {
-        let mut term = signal(SignalKind::terminate())?;
-        let mut int = signal(SignalKind::interrupt())?;
-        tokio::select! {
-            _ = term.recv() => {}
-            _ = int.recv() => {}
-        }
-        Ok(())
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-mod imp {
-    pub async fn shutdown_requested() -> std::io::Result<()> {
-        tokio::signal::ctrl_c().await
-    }
-}
+#[cfg_attr(target_os = "linux", path = "linux/signal.rs")]
+#[cfg_attr(target_os = "macos", path = "macos/signal.rs")]
+#[cfg_attr(windows, path = "windows/signal.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/signal.rs"
+)]
+mod imp;

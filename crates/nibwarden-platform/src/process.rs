@@ -8,21 +8,11 @@ pub fn exec(command: &mut Command) -> io::Error {
     imp::exec(command)
 }
 
-#[cfg(target_os = "linux")]
-mod imp {
-    use std::{io, os::unix::process::CommandExt as _, process::Command};
-
-    pub fn exec(command: &mut Command) -> io::Error {
-        command.exec()
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-mod imp {
-    use std::{io, process::Command};
-
-    /// Windows has no exec; the port will spawn, wait and exit with the child's code.
-    pub fn exec(_: &mut Command) -> io::Error {
-        crate::unsupported()
-    }
-}
+#[cfg_attr(target_os = "linux", path = "linux/process.rs")]
+#[cfg_attr(target_os = "macos", path = "macos/process.rs")]
+#[cfg_attr(windows, path = "windows/process.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/process.rs"
+)]
+mod imp;

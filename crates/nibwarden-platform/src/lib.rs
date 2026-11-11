@@ -1,9 +1,10 @@
 //! Platform layer (phase2.md §8). Everything that differs between operating systems lives
 //! here; the other crates use only these interfaces and contain no `cfg(target_os)`.
 //!
-//! Linux is implemented. Other targets compile, so interfaces cannot quietly grow
-//! Linux-only types, but their functions report [`std::io::ErrorKind::Unsupported`] until
-//! they are ported.
+//! Each module keeps its interface here and one implementation per platform in
+//! `linux/`, `macos/`, `windows/` and `other/` (the last reports
+//! [`std::io::ErrorKind::Unsupported`], so interfaces cannot quietly grow types only one
+//! platform has).
 
 pub mod autostart;
 pub mod browser;
@@ -29,6 +30,7 @@ pub mod transport;
 #[cfg(feature = "tray")]
 pub mod tray;
 
+#[allow(dead_code, reason = "used only where a platform is not ported")]
 #[cfg(not(target_os = "linux"))]
 fn unsupported() -> std::io::Error {
     std::io::Error::new(
