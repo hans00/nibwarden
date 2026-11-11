@@ -11,6 +11,8 @@
 //!   terminating it, and `OWNER RIGHTS` is cut down to reading the descriptor, so not even
 //!   the owner's implicit `WRITE_DAC` remains to widen it again. Not covered: a process with
 //!   `SeDebugPrivilege` (an elevated administrator) or SYSTEM, which bypass DACLs.
+//! - A console window opened for the daemon when it is started without a terminal (at
+//!   login) is closed right away (it still flashes).
 //! - Code injection by configuration: extension points (AppInit DLLs, legacy IME hooks)
 //!   are off, images load neither from network shares nor from low-integrity locations, and
 //!   prefer System32.
@@ -31,6 +33,7 @@ use windows::{
         },
         Storage::FileSystem::{READ_CONTROL, WRITE_DAC},
         System::{
+            Console::{FreeConsole, GetConsoleProcessList},
             Diagnostics::Debug::{
                 EXCEPTION_POINTERS, SEM_FAILCRITICALERRORS, SEM_NOGPFAULTERRORBOX,
                 SEM_NOOPENFILEERRORBOX, SetErrorMode, SetUnhandledExceptionFilter,
@@ -51,7 +54,21 @@ use crate::winutil::{IoResult as _, current_user, wide};
 /// `PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE`.
 const ALLOWED_ON_PROCESS: u32 = 0x0000_0001 | 0x0000_1000 | 0x0010_0000;
 
+/// A console window that exists only because this process was started without one (from
+/// the `Run` key at login, by a double click: the daemon is a console program) is closed;
+/// a console shared with a shell (started from a terminal) stays, with its logs.
+fn release_own_console() {
+    // SAFETY: asks which processes share the console, then leaves it.
+    unsafe {
+        let mut processes = [0u32; 2];
+        if GetConsoleProcessList(&mut processes) == 1 {
+            let _ = FreeConsole();
+        }
+    }
+}
+
 pub fn harden_process() {
+    release_own_console();
     // SAFETY: plain calls; the filter is a function without captured state.
     unsafe {
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);

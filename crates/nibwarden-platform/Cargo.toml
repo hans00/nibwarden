@@ -55,11 +55,16 @@ objc2-local-authentication = { version = "0.3.2", default-features = false, feat
 [target.'cfg(windows)'.dependencies]
 futures-util = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time"] }
+windows-future = "=0.3.2"
 windows = { version = "=0.62.2", features = [
+    "Data_Xml_Dom",
     "Foundation",
     "Security_Credentials_UI",
+    "UI_Notifications",
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_OpenGL",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
@@ -75,6 +80,7 @@ windows = { version = "=0.62.2", features = [
     "Win32_System_Power",
     "Win32_System_Registry",
     "Win32_System_RemoteDesktop",
+    "Win32_System_StationsAndDesktops",
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",

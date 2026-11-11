@@ -9,10 +9,38 @@ use std::{
 };
 
 fn home() -> io::Result<PathBuf> {
+    // Windows' ssh and git look in the profile directory; a HOME that a shell (Git Bash)
+    // sets may point elsewhere.
+    if cfg!(windows) {
+        return std::env::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no home directory"));
+    }
     std::env::var_os("HOME")
         .filter(|h| !h.is_empty())
         .map(PathBuf::from)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))
+}
+
+/// The directory of Windows' own OpenSSH (`ssh.exe`, `ssh-keygen.exe`), the programs that
+/// speak to an agent through a named pipe. Git for Windows ships ssh programs built for
+/// MSYS, which do not.
+#[cfg(windows)]
+pub fn windows_openssh(program: &str) -> Option<PathBuf> {
+    let root = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("windir"))?;
+    let path = PathBuf::from(root)
+        .join("System32")
+        .join("OpenSSH")
+        .join(format!("{program}.exe"));
+    path.is_file().then_some(path)
+}
+
+/// The OpenSSH program `program` to run: Windows' own where there is one.
+pub fn openssh(program: &str) -> std::ffi::OsString {
+    #[cfg(windows)]
+    if let Some(path) = windows_openssh(program) {
+        return path.into_os_string();
+    }
+    program.into()
 }
 
 /// A setting not made because another one would take precedence over it; the error
@@ -82,11 +110,29 @@ pub mod ssh {
         }
     }
 
-    fn block(socket: &Path) -> String {
+    /// How the socket is written in the file. ssh reads backslashes in a quoted value as
+    /// escapes in some versions (OpenSSH 8.7 and later, whose Windows port follows), so a
+    /// named pipe (`\\.\pipe\name`) may have to be written with its backslashes doubled;
+    /// [`set_agent`] asks ssh which spelling it understands.
+    fn spelled(socket: &Path, escaped: bool) -> String {
+        let text = socket.display().to_string();
+        if escaped {
+            text.replace('\\', "\\\\")
+        } else {
+            text
+        }
+    }
+
+    fn block(socket: &Path, escaped: bool) -> String {
         format!(
             "{BEGIN}\nHost *\n    IdentityAgent \"{}\"\n{END}\n",
-            socket.display()
+            spelled(socket, escaped)
         )
+    }
+
+    /// The socket as ssh reads `written` back: with doubled backslashes undone.
+    fn unescaped(written: &str) -> String {
+        written.replace("\\\\", "\\")
     }
 
     /// The config without nibwarden's block, and the socket the block named, if any.
@@ -157,8 +203,8 @@ pub mod ssh {
     }
 
     /// `text` with nibwarden's block at line `at` (`None`: at the end).
-    fn with_block(text: &str, socket: &Path, at: Option<usize>) -> String {
-        let block = block(socket);
+    fn with_block(text: &str, socket: &Path, at: Option<usize>, escaped: bool) -> String {
+        let block = block(socket, escaped);
         match at {
             Some(at) => {
                 let mut lines: Vec<&str> = text.lines().collect();
@@ -173,7 +219,7 @@ pub mod ssh {
     /// The agent ssh uses for `host` with the config at `path`, as ssh reports it; `None`
     /// if ssh cannot be asked.
     fn effective(path: &Path, host: &str) -> Option<String> {
-        let out = Command::new("ssh")
+        let out = Command::new(openssh("ssh"))
             .arg("-G")
             .arg("-F")
             .arg(path)
@@ -201,7 +247,7 @@ pub mod ssh {
             return Agent::Off;
         };
         match effective(&path, ANY_HOST) {
-            Some(used) if used != socket => Agent::Overridden(used),
+            Some(used) if used != socket && used != unescaped(&socket) => Agent::Overridden(used),
             _ => Agent::On,
         }
     }
@@ -230,6 +276,7 @@ pub mod ssh {
         let original = read(&path)?;
         let (text, had) = without_block(&original);
         let Some(socket) = socket else {
+            restore_git_ssh_command();
             return if had.is_some() {
                 write(&path, &text)
             } else {
@@ -239,11 +286,22 @@ pub mod ssh {
         let wanted = socket.display().to_string();
         // Before the user's agent for every host; failing that (e.g. one set in an
         // Included file), first of all.
+        // Only a Windows pipe name has backslashes to be read wrongly.
+        let spellings: &[bool] = if wanted.contains('\\') {
+            &[false, true]
+        } else {
+            &[false]
+        };
         for at in [insert_at(&text), Some(0)] {
-            write(&path, &with_block(&text, socket, at))?;
-            match effective(&path, ANY_HOST) {
-                Some(used) if used != wanted => continue,
-                _ => return Ok(()),
+            for &escaped in spellings {
+                write(&path, &with_block(&text, socket, at, escaped))?;
+                match effective(&path, ANY_HOST) {
+                    Some(used) if used != wanted => {}
+                    _ => {
+                        use_windows_openssh_in_git();
+                        return Ok(());
+                    }
+                }
             }
         }
         let used = effective(&path, ANY_HOST).unwrap_or_default();
@@ -262,27 +320,47 @@ pub mod ssh {
     fn write(path: &Path, text: &str) -> io::Result<()> {
         let dir = path.parent().expect("~/.ssh/config has a parent");
         if !dir.exists() {
-            std::fs::create_dir_all(dir)?;
-            set_mode(dir, 0o700)?;
+            nibwarden_platform::fs::create_private_dir(dir)?;
         }
         let new = !path.exists();
         std::fs::write(path, text)?;
-        // ssh refuses a config that others can write.
+        // ssh refuses a config that others can write (Windows' ssh: one whose access
+        // control list names anyone but the owner, SYSTEM and the administrators).
         if new {
-            set_mode(path, 0o600)?;
+            nibwarden_platform::fs::restrict_file(path)?;
         }
         Ok(())
     }
 
-    #[cfg(unix)]
-    fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+    /// `core.sshCommand` of the global git config, set by [`use_windows_openssh_in_git`].
+    #[cfg(windows)]
+    const GIT_SSH_COMMAND: &str = "core.sshCommand";
+
+    /// Git for Windows runs its own MSYS `ssh` for `git push` and `git pull` over SSH,
+    /// which cannot reach an agent through a named pipe, so the `IdentityAgent` set above
+    /// would be of no use to it. Points git at Windows' OpenSSH instead, as 1Password's
+    /// setup guide does, unless the user set a command of their own. Best effort: git may
+    /// not be installed.
+    fn use_windows_openssh_in_git() {
+        #[cfg(windows)]
+        if let Some(ssh) = windows_openssh("ssh")
+            && super::git::get_global(GIT_SSH_COMMAND).is_none()
+        {
+            // Forward slashes: git reads backslashes in config values as escapes.
+            let command = ssh.to_string_lossy().replace('\\', "/");
+            let _ = super::git::set_global(GIT_SSH_COMMAND, &command);
+        }
     }
 
-    #[cfg(not(unix))]
-    fn set_mode(_: &Path, _: u32) -> io::Result<()> {
-        Ok(())
+    /// Takes back [`use_windows_openssh_in_git`], if the command is the one it set.
+    fn restore_git_ssh_command() {
+        #[cfg(windows)]
+        if let Some(ssh) = windows_openssh("ssh")
+            && super::git::get_global(GIT_SSH_COMMAND).as_deref()
+                == Some(ssh.to_string_lossy().replace('\\', "/").as_str())
+        {
+            let _ = super::git::unset_global(GIT_SSH_COMMAND);
+        }
     }
 
     #[cfg(test)]
@@ -290,12 +368,28 @@ pub mod ssh {
         use super::*;
 
         #[test]
+        fn named_pipes_are_written_with_or_without_doubled_backslashes() {
+            let pipe = Path::new(r"\\.\pipe\nibwarden-S-1-5-21-1-ssh-agent");
+            assert_eq!(
+                spelled(pipe, false),
+                r"\\.\pipe\nibwarden-S-1-5-21-1-ssh-agent"
+            );
+            let escaped = spelled(pipe, true);
+            assert_eq!(escaped, r"\\\\.\\pipe\\nibwarden-S-1-5-21-1-ssh-agent");
+            assert_eq!(unescaped(&escaped), pipe.to_str().unwrap());
+            // A Unix socket has no backslashes to change.
+            let socket = Path::new("/run/user/1000/nibwarden/ssh-agent.sock");
+            assert_eq!(spelled(socket, true), socket.to_str().unwrap());
+            assert!(block(pipe, true).contains(&format!("IdentityAgent \"{escaped}\"")));
+        }
+
+        #[test]
         fn adds_and_removes_its_block() {
             let user = "Host work\n    IdentityAgent ~/.other.sock\n";
             let (text, found) = without_block(user);
             assert_eq!((text.as_str(), found), (user, None));
-            let with = with_block(user, Path::new("/run/a.sock"), insert_at(user));
-            assert!(with.ends_with(&block(Path::new("/run/a.sock"))));
+            let with = with_block(user, Path::new("/run/a.sock"), insert_at(user), false);
+            assert!(with.ends_with(&block(Path::new("/run/a.sock"), false)));
             let (text, found) = without_block(&with);
             assert_eq!(
                 (text.as_str(), found.as_deref()),
@@ -307,7 +401,7 @@ pub mod ssh {
         fn goes_before_the_users_agent_for_every_host() {
             let user = "Host work\n  IdentityAgent /w.sock\nHost *\n  IdentityAgent /all.sock\n";
             assert_eq!(insert_at(user), Some(2));
-            let with = with_block(user, Path::new("/n.sock"), insert_at(user));
+            let with = with_block(user, Path::new("/n.sock"), insert_at(user), false);
             assert!(with.starts_with(&format!("Host work\n  IdentityAgent /w.sock\n{BEGIN}")));
             assert_eq!(without_block(&with).0, user);
             // Before any Host line, and Match all, count as every host.
@@ -382,6 +476,21 @@ pub mod git {
             .filter(|v| !v.is_empty())
     }
 
+    #[cfg(windows)]
+    pub(super) fn get_global(name: &str) -> Option<String> {
+        get(Scope::Global, name)
+    }
+
+    #[cfg(windows)]
+    pub(super) fn set_global(name: &str, value: &str) -> io::Result<()> {
+        git(&["config", "--global", name, value]).map(drop)
+    }
+
+    #[cfg(windows)]
+    pub(super) fn unset_global(name: &str) -> io::Result<()> {
+        git(&["config", "--global", "--unset", name]).map(drop)
+    }
+
     /// The value git uses outside any repository, every config file and include counted.
     fn effective(name: &str) -> Option<String> {
         outside_repository(&["config", "--get", name])
@@ -425,7 +534,8 @@ pub mod git {
         let program = get(Scope::Global, "gpg.ssh.program")?;
         let key = get(Scope::Global, "user.signingkey")?;
         let on = get(Scope::Global, "commit.gpgsign").as_deref() == Some("true");
-        let ours = Path::new(&program).file_name() == Some("nibwarden-ssh-sign".as_ref());
+        // `nibwarden-ssh-sign`, or `nibwarden-ssh-sign.exe`.
+        let ours = Path::new(&program).file_stem() == Some("nibwarden-ssh-sign".as_ref());
         (on && ours && get(Scope::Global, "gpg.format").as_deref() == Some("ssh"))
             .then(|| key.split_once(MARK).map(|(_, name)| name.to_owned()))
             .flatten()

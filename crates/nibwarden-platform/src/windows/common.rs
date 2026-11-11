@@ -245,3 +245,358 @@ impl<T> IoResult<T> for windows::core::Result<T> {
         self.map_err(io_error)
     }
 }
+
+/// Registry values under `HKEY_CURRENT_USER`. Names are `Software\...` key paths.
+pub mod registry {
+    use std::{ffi::OsStr, io};
+
+    use windows::{
+        Win32::{
+            Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR},
+            System::Registry::{
+                HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE,
+                REG_SZ, REG_VALUE_TYPE, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW,
+                RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
+            },
+        },
+        core::PCWSTR,
+    };
+
+    use super::wide;
+
+    fn check(code: WIN32_ERROR) -> io::Result<()> {
+        if code == ERROR_SUCCESS {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(code.0 as i32))
+        }
+    }
+
+    /// An open key, closed on drop.
+    struct Key(HKEY);
+
+    impl Drop for Key {
+        fn drop(&mut self) {
+            // SAFETY: the key was opened by us.
+            unsafe {
+                let _ = RegCloseKey(self.0);
+            }
+        }
+    }
+
+    fn open(
+        subkey: &str,
+        access: windows::Win32::System::Registry::REG_SAM_FLAGS,
+    ) -> io::Result<Key> {
+        let subkey = wide(OsStr::new(subkey));
+        let mut key = HKEY::default();
+        // SAFETY: `subkey` is NUL-terminated; `key` receives the handle.
+        check(unsafe {
+            RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                PCWSTR(subkey.as_ptr()),
+                None,
+                access,
+                &mut key,
+            )
+        })?;
+        Ok(Key(key))
+    }
+
+    fn missing(e: &io::Error) -> bool {
+        e.kind() == io::ErrorKind::NotFound
+            || e.raw_os_error() == Some(ERROR_FILE_NOT_FOUND.0 as i32)
+    }
+
+    /// Sets the string value `name` (the key's default value for `None`), creating the key.
+    pub fn set_string(subkey: &str, name: Option<&str>, value: &str) -> io::Result<()> {
+        let data: Vec<u8> = wide(OsStr::new(value))
+            .iter()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect();
+        set_raw(subkey, name, REG_SZ.0, &data)
+    }
+
+    /// Sets a value of type `kind` (`REG_SZ` is 1, `REG_BINARY` 3), creating the key.
+    pub fn set_raw(subkey: &str, name: Option<&str>, kind: u32, data: &[u8]) -> io::Result<()> {
+        let subkey = wide(OsStr::new(subkey));
+        let mut key = HKEY::default();
+        // SAFETY: `subkey` is NUL-terminated; `key` receives the handle.
+        check(unsafe {
+            RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                PCWSTR(subkey.as_ptr()),
+                None,
+                PCWSTR::null(),
+                REG_OPTION_NON_VOLATILE,
+                KEY_SET_VALUE,
+                None,
+                &mut key,
+                None,
+            )
+        })?;
+        let key = Key(key);
+        let name = name.map(|n| wide(OsStr::new(n)));
+        // SAFETY: `name` is NUL-terminated or null.
+        check(unsafe {
+            RegSetValueExW(
+                key.0,
+                name.as_ref().map_or(PCWSTR::null(), |n| PCWSTR(n.as_ptr())),
+                None,
+                REG_VALUE_TYPE(kind),
+                Some(data),
+            )
+        })
+    }
+
+    /// The raw value `name` (the key's default for `None`); `None` if the key or value
+    /// does not exist.
+    pub fn get_raw(subkey: &str, name: Option<&str>) -> io::Result<Option<(u32, Vec<u8>)>> {
+        let key = match open(subkey, KEY_QUERY_VALUE) {
+            Err(e) if missing(&e) => return Ok(None),
+            other => other?,
+        };
+        let name = name.map(|n| wide(OsStr::new(n)));
+        let name = name.as_ref().map_or(PCWSTR::null(), |n| PCWSTR(n.as_ptr()));
+        let mut kind = REG_VALUE_TYPE(0);
+        let mut len = 0u32;
+        // SAFETY: the first call asks for the size; the second reads that many bytes.
+        unsafe {
+            match check(RegQueryValueExW(
+                key.0,
+                name,
+                None,
+                Some(&mut kind),
+                None,
+                Some(&mut len),
+            )) {
+                Err(e) if missing(&e) => return Ok(None),
+                other => other?,
+            }
+            let mut data = vec![0u8; len as usize];
+            check(RegQueryValueExW(
+                key.0,
+                name,
+                None,
+                Some(&mut kind),
+                Some(data.as_mut_ptr()),
+                Some(&mut len),
+            ))?;
+            data.truncate(len as usize);
+            Ok(Some((kind.0, data)))
+        }
+    }
+
+    /// A string value (`REG_SZ`), or `None` if there is none.
+    pub fn get_string(subkey: &str, name: Option<&str>) -> io::Result<Option<String>> {
+        Ok(get_raw(subkey, name)?.and_then(|(kind, data)| {
+            if kind != REG_SZ.0 {
+                return None;
+            }
+            let units: Vec<u16> = data
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
+            Some(String::from_utf16_lossy(&units[..end]))
+        }))
+    }
+
+    /// Deletes a value; one that is not there is fine.
+    pub fn delete_value(subkey: &str, name: &str) -> io::Result<()> {
+        let key = match open(subkey, KEY_SET_VALUE) {
+            Err(e) if missing(&e) => return Ok(()),
+            other => other?,
+        };
+        let name = wide(OsStr::new(name));
+        // SAFETY: `name` is NUL-terminated.
+        match check(unsafe { RegDeleteValueW(key.0, PCWSTR(name.as_ptr())) }) {
+            Err(e) if missing(&e) => Ok(()),
+            other => other,
+        }
+    }
+
+    /// Deletes a key without subkeys; one that is not there is fine.
+    pub fn delete_key(subkey: &str) -> io::Result<()> {
+        let subkey = wide(OsStr::new(subkey));
+        // SAFETY: `subkey` is NUL-terminated.
+        match check(unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, PCWSTR(subkey.as_ptr())) }) {
+            Err(e) if missing(&e) => Ok(()),
+            other => other,
+        }
+    }
+
+    /// Quotes `arg` for a command line the way `CommandLineToArgvW` (and the C runtime)
+    /// reads it back.
+    pub fn quote_arg(arg: &str) -> String {
+        if !arg.is_empty() && !arg.contains([' ', '\t', '\n', '\x0b', '"']) {
+            return arg.to_owned();
+        }
+        let mut quoted = String::from("\"");
+        let mut backslashes = 0;
+        for c in arg.chars() {
+            match c {
+                '\\' => backslashes += 1,
+                '"' => {
+                    // Backslashes before a quote are doubled, and the quote escaped.
+                    quoted.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
+                    quoted.push('"');
+                    backslashes = 0;
+                }
+                c => {
+                    quoted.extend(std::iter::repeat_n('\\', backslashes));
+                    quoted.push(c);
+                    backslashes = 0;
+                }
+            }
+        }
+        // Backslashes before the closing quote are doubled.
+        quoted.extend(std::iter::repeat_n('\\', backslashes * 2));
+        quoted.push('"');
+        quoted
+    }
+}
+
+/// Programs started at login: values of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
+/// which Settings > Apps > Startup lists, and which the user can switch off there (Windows
+/// records that in `...\Explorer\StartupApproved\Run`, and `is_set` honours it).
+pub mod run_key {
+    use std::io;
+
+    use super::registry;
+
+    /// The two keys involved.
+    pub struct Keys<'a> {
+        pub run: &'a str,
+        pub approved: &'a str,
+    }
+
+    /// Where Windows looks.
+    pub const REAL: Keys<'static> = Keys {
+        run: r"Software\Microsoft\Windows\CurrentVersion\Run",
+        approved: r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run",
+    };
+
+    impl Keys<'_> {
+        /// `command`: program and arguments, quoted into the command line.
+        pub fn set(&self, name: &str, command: &[String], on: bool) -> io::Result<()> {
+            if !on {
+                registry::delete_value(self.run, name)?;
+                return registry::delete_value(self.approved, name);
+            }
+            let line = command
+                .iter()
+                .map(|arg| registry::quote_arg(arg))
+                .collect::<Vec<_>>()
+                .join(" ");
+            registry::set_string(self.run, Some(name), &line)?;
+            // Turned on again here, so it is no longer "disabled in Startup apps".
+            registry::delete_value(self.approved, name)
+        }
+
+        pub fn command_line(&self, name: &str) -> Option<String> {
+            registry::get_string(self.run, Some(name)).ok().flatten()
+        }
+
+        /// In the Run key, and not switched off in Startup apps (a first byte with the low
+        /// bit set, `03`, means disabled; `02` and `06` enabled).
+        pub fn is_set(&self, name: &str) -> bool {
+            if self.command_line(name).is_none() {
+                return false;
+            }
+            let disabled = registry::get_raw(self.approved, Some(name))
+                .ok()
+                .flatten()
+                .is_some_and(|(_, data)| data.first().is_some_and(|b| b & 1 == 1));
+            !disabled
+        }
+    }
+
+    pub fn set(name: &str, command: &[String], on: bool) -> io::Result<()> {
+        REAL.set(name, command, on)
+    }
+
+    pub fn is_set(name: &str) -> bool {
+        REAL.is_set(name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{registry, run_key};
+
+    fn scratch(name: &str) -> String {
+        format!(r"Software\NibwardenTest-{}-{name}", std::process::id())
+    }
+
+    #[test]
+    fn quotes_like_the_c_runtime_reads() {
+        let q = registry::quote_arg;
+        assert_eq!(q("plain"), "plain");
+        assert_eq!(
+            q(r"C:\Program Files\n w\a.exe"),
+            r#""C:\Program Files\n w\a.exe""#
+        );
+        assert_eq!(q(""), r#""""#);
+        assert_eq!(q(r#"a"b"#), r#""a\"b""#);
+        // Backslashes before the closing quote are doubled; others are left alone.
+        assert_eq!(q(r"C:\dir with space\"), r#""C:\dir with space\\""#);
+        assert_eq!(q(r#"a\"b c"#), r#""a\\\"b c""#);
+    }
+
+    #[test]
+    fn registry_values_round_trip() {
+        let key = scratch("values");
+        assert_eq!(registry::get_string(&key, Some("v")).unwrap(), None);
+        registry::set_string(&key, Some("v"), "héllo wörld").unwrap();
+        registry::set_string(&key, None, "default").unwrap();
+        assert_eq!(
+            registry::get_string(&key, Some("v")).unwrap().as_deref(),
+            Some("héllo wörld")
+        );
+        assert_eq!(
+            registry::get_string(&key, None).unwrap().as_deref(),
+            Some("default")
+        );
+        registry::delete_value(&key, "v").unwrap();
+        registry::delete_value(&key, "v").unwrap();
+        assert_eq!(registry::get_string(&key, Some("v")).unwrap(), None);
+        registry::delete_key(&key).unwrap();
+        registry::delete_key(&key).unwrap();
+        assert_eq!(registry::get_string(&key, None).unwrap(), None);
+    }
+
+    #[test]
+    fn run_entries_follow_startup_apps() {
+        let (run, approved) = (scratch("run"), scratch("approved"));
+        let keys = run_key::Keys {
+            run: &run,
+            approved: &approved,
+        };
+        assert!(!keys.is_set("x"));
+        keys.set("x", &[r"C:\a b\x.exe".into(), "tray".into()], true)
+            .unwrap();
+        assert!(keys.is_set("x"));
+        assert_eq!(
+            keys.command_line("x").as_deref(),
+            Some(r#""C:\a b\x.exe" tray"#)
+        );
+        // The user switches it off in Settings: Windows writes 03 00 00 00 ...
+        registry::set_raw(
+            &approved,
+            Some("x"),
+            3,
+            &[3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
+        .unwrap();
+        assert!(!keys.is_set("x"));
+        // Turning it on here enables it again.
+        keys.set("x", &["y.exe".into()], true).unwrap();
+        assert!(keys.is_set("x"));
+        keys.set("x", &[], false).unwrap();
+        keys.set("x", &[], false).unwrap();
+        assert!(!keys.is_set("x"));
+        let _ = registry::delete_key(&run);
+        let _ = registry::delete_key(&approved);
+    }
+}

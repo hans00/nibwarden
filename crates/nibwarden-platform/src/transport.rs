@@ -119,13 +119,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nw-transport-{}", std::process::id()));
         let path = dir.join("run/t.sock");
         let listener = Listener::bind(&path).await.unwrap();
-        // (Wine ignores FILE_FLAG_FIRST_PIPE_INSTANCE and allows it.)
-        let second = Listener::bind(&path).await;
-        if crate::winutil::under_wine() {
-            drop(second);
-        } else {
-            assert_eq!(second.err().unwrap().kind(), io::ErrorKind::AddrInUse);
-        }
+        let err = Listener::bind(&path).await.err().unwrap();
+        assert_eq!(err.kind(), io::ErrorKind::AddrInUse);
         // That check connected to find the listener alive; its connection is queued first.
         drop(listener.accept().await.unwrap());
 
