@@ -448,7 +448,7 @@ export component SettingsWindow inherits Window {
                                 if root.remember != 0: SettingRow {
                                     label: @tr("Remember an approval");
                                     Segmented {
-                                        options: [@tr("Until locked"), @tr("1 hour"), @tr("4 hours"), @tr("12 hours")];
+                                        options: [@tr("Until locked"), @tr("Until quit"), @tr("4 hours"), @tr("12 hours"), @tr("24 hours")];
                                         selected <=> root.remember-for;
                                         chosen(index) => {
                                             root.remember-for-chosen(index);

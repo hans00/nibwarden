@@ -357,7 +357,7 @@ impl Daemon {
             && account.is_unlocked()
         {
             account.lock().await;
-            self.approvals.clear();
+            self.approvals.locked();
             tracing::info!("locked");
         }
         Ok(())
@@ -523,7 +523,7 @@ impl Daemon {
                         }
                     } else if account.is_unlocked() {
                         account.lock().await;
-                        self.approvals.clear();
+                        self.approvals.locked();
                         tracing::info!(idle_secs = idle.as_secs(), "locked after inactivity");
                     }
                 }

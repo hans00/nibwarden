@@ -154,24 +154,36 @@ impl Backend for AgentBackend {
             LockState::Unlocked => {}
             LockState::LoggedOut => return None,
             LockState::Locked => {
-                let name = self
-                    .daemon
-                    .ssh_keys_seen()
-                    .and_then(|seen| {
-                        with_identities(seen)
-                            .into_iter()
-                            .find(|(id, _)| id.blob == key_blob)
-                    })
-                    .map_or_else(|| "?".to_owned(), |(_, key)| key.name);
+                let seen = self.daemon.ssh_keys_seen().and_then(|seen| {
+                    with_identities(seen)
+                        .into_iter()
+                        .find(|(id, _)| id.blob == key_blob)
+                        .map(|(_, key)| key)
+                });
                 tracing::info!(peer = self.peer.describe(), %purpose, "signature requested while locked");
-                let application = Approvals::application(&self.peer);
-                let scope = self.daemon.approvals.scope();
-                match self
-                    .daemon
-                    .prompts
-                    .unlock_for(&self.daemon, &self.peer, access(&name), application, scope)
-                    .await
-                {
+                // An approval that outlived the lock (`remember_for`): like 1Password,
+                // only ask to unlock; the approval below then finds it.
+                let approved = seen.as_ref().is_some_and(|key| {
+                    self.daemon
+                        .approvals
+                        .is_remembered(&self.peer, &Target::SshKey { id: key.id.clone() })
+                });
+                let name = seen.map_or_else(|| "?".to_owned(), |key| key.name);
+                let unlocked = if approved {
+                    let prompts = &self.daemon.prompts;
+                    prompts
+                        .unlock(&self.daemon, &self.peer)
+                        .await
+                        .map(|()| Unlocked::Already)
+                } else {
+                    let application = Approvals::application(&self.peer);
+                    let scope = self.daemon.approvals.scope();
+                    self.daemon
+                        .prompts
+                        .unlock_for(&self.daemon, &self.peer, access(&name), application, scope)
+                        .await
+                };
+                match unlocked {
                     Ok(Unlocked::AndAllowed { all_applications }) => {
                         allowed_by_unlock = Some(all_applications);
                     }

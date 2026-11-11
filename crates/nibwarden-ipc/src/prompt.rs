@@ -46,7 +46,7 @@ pub enum Prompt {
     Retry { reason: RetryReason },
 }
 
-/// How long allowing a request lasts (phase2.md §4.2); always until the vault locks.
+/// How far allowing a request reaches (phase2.md §4.2); how long is `remember_for`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Scope {
@@ -200,7 +200,7 @@ pub enum Answer {
     /// To `unlock` and `reprompt`.
     Password {
         password: Zeroizing<String>,
-        /// "Approve for all applications" (until the vault locks); unlock-and-allow only.
+        /// "Approve for all applications" (as long as `remember_for`); unlock-and-allow only.
         #[serde(default)]
         all_applications: bool,
     },

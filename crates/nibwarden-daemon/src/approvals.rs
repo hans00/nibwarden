@@ -1,9 +1,11 @@
 //! Confirmation before use (phase2.md §4.2), modelled on 1Password's SSH agent: SSH
 //! signatures (logins, git) are always confirmed; an approval then lasts until the vault
-//! locks (or for a set number of hours, if sooner), for the requesting application (or
-//! one terminal tab of it, or only the one request, as configured), or for every
-//! application if the user ticked that box.
-//! Secret reads by programs follow the same rules, but can be switched off.
+//! locks, until nibwardend stops, or for a set number of hours (those two outlive a lock,
+//! so the next request only asks to unlock), for the requesting application (or one
+//! terminal tab of it, or only the one request, as configured), or for every application
+//! if the user ticked that box.
+//! Secret reads by programs follow the same rules, but can be switched off, and always
+//! end when the vault locks, like 1Password CLI's authorization.
 
 use std::{
     collections::HashMap,
@@ -11,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use nibwarden_config::{Ask, Remember};
+use nibwarden_config::{Ask, Remember, RememberFor};
 use nibwarden_ipc::{
     ErrorBody, ErrorCode,
     prompt::{Access, Requester, Scope},
@@ -35,6 +37,14 @@ pub enum Target {
     },
 }
 
+/// When a remembered approval ends (`remember_for`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ends {
+    Lock,
+    Quit,
+    At(Instant),
+}
+
 /// Who an approval is for.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum Holder {
@@ -46,8 +56,7 @@ enum Holder {
 
 pub struct Approvals {
     config: Mutex<nibwarden_config::Approval>,
-    /// Until the vault locks, or until the time given (`remember_hours`).
-    remembered: Mutex<HashMap<(Holder, Target), Option<Instant>>>,
+    remembered: Mutex<HashMap<(Holder, Target), Ends>>,
 }
 
 impl Approvals {
@@ -67,9 +76,20 @@ impl Approvals {
         *self.config.lock().expect("poisoned")
     }
 
-    /// Forgets every approval; called whenever the vault locks.
+    /// Forgets every approval, e.g. on logout.
     pub fn clear(&self) {
         self.remembered.lock().expect("poisoned").clear();
+    }
+
+    /// The vault locked: SSH key approvals given "until quit" or for a set time stay
+    /// (1Password's "remember key approval"); every other approval ends.
+    pub fn locked(&self) {
+        self.remembered
+            .lock()
+            .expect("poisoned")
+            .retain(|(_, target), ends| {
+                matches!(target, Target::SshKey { .. } | Target::AnySshKey) && *ends != Ends::Lock
+            });
     }
 
     /// How far an approval given now reaches, to tell the user in the window.
@@ -109,12 +129,12 @@ impl Approvals {
             self.holder(peer, self.config().remember)
         };
         if let Some(holder) = holder {
-            let until = self.until();
-            tracing::info!(?holder, ?target, ?until, "approval remembered");
+            let ends = self.ends();
+            tracing::info!(?holder, ?target, ?ends, "approval remembered");
             self.remembered
                 .lock()
                 .expect("poisoned")
-                .insert((holder, target), until);
+                .insert((holder, target), ends);
         }
     }
 
@@ -124,11 +144,11 @@ impl Approvals {
     pub fn authorize_terminal(&self, peer: &Peer) {
         if let Some(holder) = self.holder(peer, Remember::Terminal) {
             tracing::info!(?holder, "SSH signatures authorized from the terminal");
-            let until = self.until();
+            let ends = self.ends();
             self.remembered
                 .lock()
                 .expect("poisoned")
-                .insert((holder, Target::AnySshKey), until);
+                .insert((holder, Target::AnySshKey), ends);
         }
     }
 
@@ -137,7 +157,8 @@ impl Approvals {
         self.is_remembered(peer, &Target::AnySshKey)
     }
 
-    fn is_remembered(&self, peer: &Peer, target: &Target) -> bool {
+    /// Whether `peer` holds an approval for `target`, e.g. one that outlived a lock.
+    pub fn is_remembered(&self, peer: &Peer, target: &Target) -> bool {
         let mut targets = vec![target.clone()];
         if matches!(target, Target::SshKey { .. }) {
             targets.push(Target::AnySshKey);
@@ -151,7 +172,7 @@ impl Approvals {
         }
         let now = Instant::now();
         let mut remembered = self.remembered.lock().expect("poisoned");
-        remembered.retain(|_, until| until.is_none_or(|until| until > now));
+        remembered.retain(|_, ends| !matches!(ends, Ends::At(until) if *until <= now));
         holders.iter().any(|holder| {
             targets
                 .iter()
@@ -159,11 +180,14 @@ impl Approvals {
         })
     }
 
-    /// When an approval given now ends, besides the vault locking.
-    fn until(&self) -> Option<Instant> {
-        match self.config().remember_hours {
-            0 => None,
-            hours => Some(Instant::now() + Duration::from_secs(u64::from(hours) * 3600)),
+    /// When an approval given now ends.
+    fn ends(&self) -> Ends {
+        match self.config().remember_for {
+            RememberFor::Lock => Ends::Lock,
+            RememberFor::Quit => Ends::Quit,
+            RememberFor::Hours(hours) => {
+                Ends::At(Instant::now() + Duration::from_secs(u64::from(hours) * 3600))
+            }
         }
     }
 
@@ -271,8 +295,32 @@ mod tests {
         // Another application, or another key: not.
         assert!(!approvals.is_remembered(&peer(2, Some(5)), &key));
         assert!(!approvals.is_remembered(&peer(1, Some(5)), &Target::SshKey { id: "b".into() }));
-        approvals.clear();
+        approvals.locked();
         assert!(!approvals.is_remembered(&peer(1, Some(5)), &key));
+    }
+
+    #[test]
+    fn timed_and_quit_ssh_approvals_outlive_a_lock() {
+        let item = Target::Item {
+            id: "i".into(),
+            field: "password".into(),
+        };
+        for remember_for in [RememberFor::Quit, RememberFor::Hours(4)] {
+            let approvals = approvals(Remember::Application);
+            approvals.set_config(nibwarden_config::Approval {
+                remember_for,
+                ..Default::default()
+            });
+            let key = Target::SshKey { id: "a".into() };
+            approvals.remember(&peer(1, None), key.clone(), false);
+            approvals.remember(&peer(1, None), item.clone(), false);
+            approvals.locked();
+            assert!(approvals.is_remembered(&peer(1, None), &key));
+            // Secret reads end at lock, like 1Password CLI's authorization.
+            assert!(!approvals.is_remembered(&peer(1, None), &item));
+            approvals.clear();
+            assert!(!approvals.is_remembered(&peer(1, None), &key));
+        }
     }
 
     #[test]
@@ -302,14 +350,13 @@ mod tests {
         let approvals = approvals(Remember::Application);
         let key = Target::SshKey { id: "a".into() };
         let past = Instant::now().checked_sub(Duration::from_secs(1));
-        approvals
-            .remembered
-            .lock()
-            .unwrap()
-            .insert((Holder::App(peer(1, None).app.unwrap()), key.clone()), past);
+        approvals.remembered.lock().unwrap().insert(
+            (Holder::App(peer(1, None).app.unwrap()), key.clone()),
+            Ends::At(past.unwrap()),
+        );
         assert!(!approvals.is_remembered(&peer(1, None), &key));
         approvals.set_config(nibwarden_config::Approval {
-            remember_hours: 4,
+            remember_for: RememberFor::Hours(4),
             ..Default::default()
         });
         approvals.remember(&peer(1, None), key.clone(), false);

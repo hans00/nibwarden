@@ -3,7 +3,7 @@
 
 use std::{path::PathBuf, process::ExitCode};
 
-use nibwarden_config::{Ask, Config, Remember, Theme as ThemeSetting, Value};
+use nibwarden_config::{Ask, Config, Remember, RememberFor, Theme as ThemeSetting, Value};
 use nibwarden_ipc::{Client, Request};
 use slint::{ComponentHandle as _, SharedString};
 
@@ -14,8 +14,23 @@ const LANGUAGES: [&str; 4] = ["system", "en", "zh-TW", "zh-CN"];
 const IDLE_MINUTES: [u32; 6] = [1, 5, 15, 30, 60, 0];
 const CLEAR_SECONDS: [u32; 5] = [30, 60, 90, 120, 300];
 const REMEMBER: [&str; 3] = ["request", "application", "terminal"];
-/// "Until locked" (0), then hours, as `approval.remember_hours`.
-const REMEMBER_HOURS: [u32; 4] = [0, 1, 4, 12];
+/// `approval.remember_for`, like 1Password's "remember key approval".
+const REMEMBER_FOR: [RememberFor; 5] = [
+    RememberFor::Lock,
+    RememberFor::Quit,
+    RememberFor::Hours(4),
+    RememberFor::Hours(12),
+    RememberFor::Hours(24),
+];
+
+/// The choice shown for a `remember_for` from the file: other hours go to the closest.
+fn remember_for_index(remember_for: RememberFor) -> i32 {
+    match remember_for {
+        RememberFor::Lock => 0,
+        RememberFor::Quit => 1,
+        RememberFor::Hours(hours) => 2 + closest(&[4, 12, 24], hours),
+    }
+}
 
 /// Index of `value` in `choices`, or of the closest one.
 fn closest(choices: &[u32], value: u32) -> i32 {
@@ -95,7 +110,7 @@ fn show(ui: &SettingsWindow, config: &Config) {
         Remember::Application => 1,
         Remember::Terminal => 2,
     });
-    ui.set_remember_for(closest(&REMEMBER_HOURS, config.approval.remember_hours));
+    ui.set_remember_for(remember_for_index(config.approval.remember_for));
     ui.set_allow_without_window(config.approval.without_window == Ask::Allow);
     ui.set_tray(config.tray.enabled);
     ui.set_minimize_after_copy(config.clipboard.minimize_after_copy);
@@ -324,8 +339,12 @@ fn connect(ui: &SettingsWindow) {
     });
     let weak = ui.as_weak();
     ui.on_remember_for_chosen(move |index| {
-        let hours = REMEMBER_HOURS[index.clamp(0, 3) as usize];
-        save(&weak, "approval", "remember_hours", i64::from(hours));
+        let value = match REMEMBER_FOR[index.clamp(0, 4) as usize] {
+            RememberFor::Lock => Value::from("lock"),
+            RememberFor::Quit => Value::from("quit"),
+            RememberFor::Hours(hours) => Value::from(i64::from(hours)),
+        };
+        save(&weak, "approval", "remember_for", value);
     });
     let weak = ui.as_weak();
     ui.on_allow_without_window_changed(move |on| {
@@ -467,9 +486,11 @@ mod tests {
         assert_eq!(closest(&IDLE_MINUTES, 0), 5);
         assert_eq!(closest(&IDLE_MINUTES, 20), 2);
         assert_eq!(closest(&CLEAR_SECONDS, 90), 2);
-        assert_eq!(closest(&REMEMBER_HOURS, 0), 0);
-        assert_eq!(closest(&REMEMBER_HOURS, 4), 2);
-        assert_eq!(closest(&REMEMBER_HOURS, 6), 2);
+        assert_eq!(remember_for_index(RememberFor::Lock), 0);
+        assert_eq!(remember_for_index(RememberFor::Quit), 1);
+        assert_eq!(remember_for_index(RememberFor::Hours(4)), 2);
+        assert_eq!(remember_for_index(RememberFor::Hours(1)), 2);
+        assert_eq!(remember_for_index(RememberFor::Hours(24)), 4);
         assert_eq!(language_index("zh_TW"), 2);
         assert_eq!(language_index("ja"), 0);
     }

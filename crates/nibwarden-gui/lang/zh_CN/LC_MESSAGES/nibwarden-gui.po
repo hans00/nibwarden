@@ -261,23 +261,23 @@ msgstr "每个终端标签页"
 msgid "Allow secret reads when no window can be shown"
 msgstr "无法显示窗口时允许读取机密"
 
-msgid "Every application may use it until nibwarden locks."
-msgstr "在 nibwarden 锁定前，所有应用程序都可以使用。"
+msgid "Every application may use it."
+msgstr "所有应用程序都可以使用。"
 
 msgid "You will be asked again for every request."
 msgstr "每次请求都会再询问你。"
 
-msgid "Allowed until nibwarden locks, in this terminal tab of {0}."
-msgstr "在 nibwarden 锁定前，于 {0} 的这个终端标签页内有效。"
+msgid "Allowed in this terminal tab of {0}."
+msgstr "在 {0} 的这个终端标签页内有效。"
 
-msgid "Allowed until nibwarden locks, in this terminal tab."
-msgstr "在 nibwarden 锁定前，于这个终端标签页内有效。"
+msgid "Allowed in this terminal tab."
+msgstr "在这个终端标签页内有效。"
 
-msgid "Allowed until nibwarden locks or {0} quits."
-msgstr "在 nibwarden 锁定或 {0} 退出前有效。"
+msgid "Allowed for {0}."
+msgstr "对 {0} 有效。"
 
-msgid "Allowed until nibwarden locks."
-msgstr "在 nibwarden 锁定前有效。"
+msgid "Allowed for this application."
+msgstr "对这个应用程序有效。"
 
 msgid "Approve for all applications"
 msgstr "批准所有应用程序"
@@ -1026,6 +1026,9 @@ msgstr "尚未登录。请在 nibwarden 主窗口登录。"
 msgid "12 hours"
 msgstr "12 小时"
 
+msgid "24 hours"
+msgstr "24 小时"
+
 msgid "4 hours"
 msgstr "4 小时"
 
@@ -1040,6 +1043,9 @@ msgstr "批准的有效时间"
 
 msgid "Sign out"
 msgstr "退出登录"
+
+msgid "Until quit"
+msgstr "直到退出 nibwarden"
 
 msgid "Until locked"
 msgstr "直到锁定"

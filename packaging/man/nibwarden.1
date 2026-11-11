@@ -205,7 +205,7 @@ on_sleep = true
 
 [approval]                # SSH signatures are always confirmed
 remember = "application"  # "request", "application" or "terminal"
-remember_hours = 0        # how long an approval lasts; 0 = until locked
+remember_for = "lock"     # SSH approvals: "lock", "quit" or hours (kept while locked)
 read_secret = "ask"       # secrets read by programs: "ask" or "allow"
 without_window = "allow"  # when no window can be shown (SSH)
 

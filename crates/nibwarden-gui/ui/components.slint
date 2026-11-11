@@ -821,7 +821,7 @@ export component Toast inherits Rectangle {
 
 export enum ApprovalScope { request, application, terminal }
 
-// How long allowing lasts, and "Approve for all applications" (phase2.md §4.2), like
+// Whom allowing covers, and "Approve for all applications" (phase2.md §4.2), like
 // 1Password's SSH agent.
 export component ApprovalOptions inherits VerticalLayout {
     in property <ApprovalScope> scope;
@@ -830,11 +830,13 @@ export component ApprovalOptions inherits VerticalLayout {
     in-out property <bool> all-applications;
     spacing: 10px;
     Text {
-        text: root.all-applications ? @tr("Every application may use it until nibwarden locks.")
+        // Who it covers, not how long: that is a setting (`remember_for`), and 1Password's
+        // prompt does not say it either.
+        text: root.all-applications ? @tr("Every application may use it.")
             : root.scope == ApprovalScope.request ? @tr("You will be asked again for every request.")
             : root.scope == ApprovalScope.terminal
-            ? (root.app != "" ? @tr("Allowed until nibwarden locks, in this terminal tab of {0}.", root.app) : @tr("Allowed until nibwarden locks, in this terminal tab."))
-            : (root.app != "" ? @tr("Allowed until nibwarden locks or {0} quits.", root.app) : @tr("Allowed until nibwarden locks."));
+            ? (root.app != "" ? @tr("Allowed in this terminal tab of {0}.", root.app) : @tr("Allowed in this terminal tab."))
+            : (root.app != "" ? @tr("Allowed for {0}.", root.app) : @tr("Allowed for this application."));
         color: Theme.text-muted;
         font-size: Theme.font-small;
         wrap: word-wrap;

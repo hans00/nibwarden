@@ -17,7 +17,9 @@
 //! [approval]                # SSH and git signatures are always confirmed
 //! remember = "application"  # what an approval covers: "request", "application" or
 //!                           # "terminal" (application + terminal tab)
-//! remember_hours = 0        # how long it lasts; 0 = until nibwarden locks
+//! remember_for = "lock"     # how long SSH key approvals last: "lock" (until nibwarden
+//!                           # locks), "quit" (until nibwardend stops) or hours (4, 12,
+//!                           # 24; kept while locked). Other approvals end at lock.
 //! read_secret = "ask"       # confirm secrets read by programs: "ask" or "allow"
 //! without_window = "allow"  # secret reads when no window can be shown (SSH, no desktop)
 //!
@@ -104,9 +106,8 @@ impl ClipboardSettings {
 #[serde(default)]
 pub struct Approval {
     pub remember: Remember,
-    /// How long an approval lasts, like 1Password's "remember key approval"; 0 = until
-    /// the vault locks. Every approval also ends when the vault locks.
-    pub remember_hours: u32,
+    /// How long an SSH key approval lasts, like 1Password's "remember key approval".
+    pub remember_for: RememberFor,
     pub read_secret: Ask,
     /// What to do with a secret read that needs confirmation when no window can be shown
     /// for it: from a remote session, or without a desktop. `allow` keeps the CLI usable
@@ -118,15 +119,48 @@ impl Default for Approval {
     fn default() -> Self {
         Self {
             remember: Remember::Application,
-            remember_hours: 0,
+            remember_for: RememberFor::Lock,
             read_secret: Ask::Ask,
             without_window: Ask::Allow,
         }
     }
 }
 
-/// How far an approval reaches, like 1Password's SSH agent. Every approval ends when the
-/// vault locks.
+/// How long an SSH key approval lasts, like 1Password's "remember key approval". Only the
+/// timed and "until quit" ones outlive a lock; then the next request only asks to unlock.
+/// In `config.toml`: `"lock"`, `"quit"` or a number of hours.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RememberFor {
+    #[default]
+    Lock,
+    /// Until nibwardend stops.
+    Quit,
+    Hours(u32),
+}
+
+impl<'de> Deserialize<'de> for RememberFor {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Hours(u32),
+            Word(String),
+        }
+        match Raw::deserialize(d)? {
+            Raw::Hours(0) => Ok(Self::Lock),
+            Raw::Hours(hours) => Ok(Self::Hours(hours)),
+            Raw::Word(word) => match word.as_str() {
+                "lock" => Ok(Self::Lock),
+                "quit" => Ok(Self::Quit),
+                other => Err(serde::de::Error::custom(format!(
+                    "remember_for: expected \"lock\", \"quit\" or hours, found {other:?}"
+                ))),
+            },
+        }
+    }
+}
+
+/// How far an approval reaches, like 1Password's SSH agent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Remember {
@@ -316,13 +350,16 @@ mod tests {
         let config = parse("[lock]\non_sleep = false\n").unwrap();
         assert!(config.lock.on_screen_lock && !config.lock.on_sleep);
         let config = parse(
-            "[approval]\nread_secret = \"allow\"\nwithout_window = \"deny\"\nremember = \"terminal\"\nremember_hours = 4\n",
+            "[approval]\nread_secret = \"allow\"\nwithout_window = \"deny\"\nremember = \"terminal\"\nremember_for = 4\n",
         )
         .unwrap();
         assert_eq!(config.approval.read_secret, Ask::Allow);
         assert_eq!(config.approval.remember, Remember::Terminal);
-        assert_eq!(config.approval.remember_hours, 4);
+        assert_eq!(config.approval.remember_for, RememberFor::Hours(4));
         assert_eq!(config.approval.without_window, Ask::Deny);
+        let config = parse("[approval]\nremember_for = \"quit\"\n").unwrap();
+        assert_eq!(config.approval.remember_for, RememberFor::Quit);
+        assert!(parse("[approval]\nremember_for = \"never\"\n").is_err());
     }
 
     #[test]
