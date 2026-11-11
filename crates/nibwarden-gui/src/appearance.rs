@@ -139,6 +139,15 @@ fn take_launch() {
     *LAUNCH_TOKEN.lock().expect("poisoned") = token;
 }
 
+/// Activation tokens are an X11/Wayland thing; elsewhere winit has no such attribute.
+#[cfg(not(target_os = "linux"))]
+fn with_launch_token(
+    attributes: slint::winit_030::winit::window::WindowAttributes,
+) -> slint::winit_030::winit::window::WindowAttributes {
+    attributes
+}
+
+#[cfg(target_os = "linux")]
 fn with_launch_token(
     attributes: slint::winit_030::winit::window::WindowAttributes,
 ) -> slint::winit_030::winit::window::WindowAttributes {
