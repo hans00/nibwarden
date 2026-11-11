@@ -87,14 +87,7 @@ export component ApproveWindow inherits Window {
                 Rectangle { height: 24px; }
                 HorizontalLayout {
                     spacing: 10px;
-                    Text {
-                        horizontal-stretch: 1;
-                        text: @tr("Only allow programs you started");
-                        color: Theme.text-faint;
-                        font-size: Theme.font-small;
-                        vertical-alignment: center;
-                        wrap: word-wrap;
-                    }
+                    Rectangle { horizontal-stretch: 1; }
                     Button {
                         text: @tr("Deny");
                         clicked => {

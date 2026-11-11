@@ -54,9 +54,6 @@ msgstr "此项目要求再次输入主密码"
 msgid "Allow access?"
 msgstr "允许访问？"
 
-msgid "Only allow programs you started"
-msgstr "只允许你自己启动的程序"
-
 msgid "Deny"
 msgstr "拒绝"
 

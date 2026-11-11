@@ -54,9 +54,6 @@ msgstr "這個項目要求再次輸入主密碼"
 msgid "Allow access?"
 msgstr "允許存取？"
 
-msgid "Only allow programs you started"
-msgstr "只允許你自己啟動的程式"
-
 msgid "Deny"
 msgstr "拒絕"
 
