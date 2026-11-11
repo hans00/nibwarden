@@ -159,8 +159,13 @@ impl Daemon {
         let ssh_agent_socket = self
             .config
             .ssh_agent_socket
-            .as_ref()
-            .map(|p| p.display().to_string());
+            .as_deref()
+            // What ssh is told: on Windows the named pipe, not the path it is bound from.
+            .map(|p| {
+                nibwarden_platform::transport::endpoint(p)
+                    .display()
+                    .to_string()
+            });
         let Some(account) = account else {
             let ended = self.ended.lock().expect("poisoned").clone();
             return StatusResult {

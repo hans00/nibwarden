@@ -134,3 +134,59 @@ mod tests {
         assert_eq!(imp::controlling_tty("1 (init) S 0 1 1 0 -1"), None);
     }
 }
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn identifies_own_process() {
+        let (a, b) = Stream::pair().unwrap();
+        for stream in [&a, &b] {
+            let peer = Peer::identify_owner(stream).unwrap();
+            assert_eq!(peer.pid, Some(std::process::id() as i32));
+            let exe = peer.exe.clone().unwrap();
+            let own = std::env::current_exe().unwrap();
+            assert!(
+                exe.to_string_lossy()
+                    .eq_ignore_ascii_case(&own.to_string_lossy()),
+                "{exe:?} vs {own:?}"
+            );
+            assert!(peer._pin.is_some());
+            assert_eq!(peer.terminal, None);
+            // Some ancestor of the test runner (cargo, a shell, a terminal), or the runner
+            // itself if its parents are not the user's own.
+            let app = peer.app.unwrap();
+            assert!(app.started > 0 && app.exe.is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn identifies_the_client_of_a_listener() {
+        let dir = std::env::temp_dir().join(format!("nw-peer-{}", std::process::id()));
+        let path = dir.join("p.sock");
+        let listener = crate::transport::Listener::bind(&path).await.unwrap();
+        let _client = crate::transport::Stream::connect(&path).await.unwrap();
+        let server = listener.accept().await.unwrap();
+        let peer = Peer::identify_owner(&server).unwrap();
+        assert_eq!(peer.pid, Some(std::process::id() as i32));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A child and its parent belong to the same application: the walk goes up through
+    /// the parent (which started before the child) and ends where the parent's does.
+    #[test]
+    fn the_application_of_a_child_is_that_of_its_parent() {
+        let mut child = std::process::Command::new("cmd")
+            .args(["/c", "ping -n 5 127.0.0.1 >nul"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let (app, _) = imp::application(&imp::Process::open(child.id()).unwrap());
+        let (own_app, _) = imp::application(&imp::Process::open(std::process::id()).unwrap());
+        assert!(app.is_some());
+        assert_eq!(app, own_app);
+        child.kill().unwrap();
+        let _ = child.wait();
+    }
+}

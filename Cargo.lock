@@ -5329,6 +5329,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tray-icon",
+ "windows",
  "windows-sys 0.61.2",
  "zbus",
  "zeroize",

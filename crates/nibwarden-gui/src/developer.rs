@@ -130,7 +130,7 @@ fn agent_socket() -> Result<PathBuf, String> {
             .ok_or_else(|| "nibwardend runs without its SSH agent".to_owned());
     }
     nibwarden_ipc::default_socket_path()
-        .map(|p| p.with_file_name("ssh-agent.sock"))
+        .map(|p| nibwarden_platform::transport::endpoint(&p.with_file_name("ssh-agent.sock")))
         .ok_or_else(|| "no runtime directory".to_owned())
 }
 

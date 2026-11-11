@@ -42,6 +42,10 @@ mod launchd;
 #[allow(dead_code, reason = "used on macOS only")]
 #[path = "macos/logic.rs"]
 mod macos_logic;
+/// Helpers shared by the Windows implementations.
+#[cfg(windows)]
+#[path = "windows/common.rs"]
+mod winutil;
 
 #[allow(dead_code, reason = "used only where a platform is not ported")]
 #[cfg(not(target_os = "linux"))]

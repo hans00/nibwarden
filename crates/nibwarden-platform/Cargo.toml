@@ -50,8 +50,41 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 # System authentication (Touch ID or the login password).
 objc2-local-authentication = { version = "0.3.2", default-features = false, features = ["std", "block2", "LAContext", "LAError", "LAPublicDefines"] }
 
+# `windows` rather than `windows-sys`: Windows Hello (UserConsentVerifier) is a WinRT API.
+# Pinned to the version already in Cargo.lock.
 [target.'cfg(windows)'.dependencies]
-# The tray's main loop (main_thread.rs) and the taskbar's theme.
+futures-util = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
+windows = { version = "=0.62.2", features = [
+    "Foundation",
+    "Security_Credentials_UI",
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ErrorReporting",
+    "Win32_System_IO",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_WinRT",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+# The tray's main loop (main_thread.rs) and the taskbar's theme, with the
+# `windows-sys` that tray-icon uses anyway.
 windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [[example]]
