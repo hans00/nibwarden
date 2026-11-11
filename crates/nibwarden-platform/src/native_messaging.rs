@@ -2,8 +2,8 @@
 //! program to start when an extension connects to a host name. nibwarden registers
 //! `nibwarden-browser-host` under the name of Bitwarden's desktop app, for the official
 //! Bitwarden extension.
-// Only Linux registers hosts so far; the manifest helpers wait for the other platforms.
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+// Only Linux and macOS register hosts so far; the manifest helpers wait for the others.
+#![cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 
 use std::{io, path::Path};
 

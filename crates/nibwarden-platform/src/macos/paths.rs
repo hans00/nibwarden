@@ -9,7 +9,7 @@ const MAX_RUNTIME_DIR: usize = 60;
 
 /// The user's home directory: `$HOME`, which launchd and login shells set, else the
 /// account database.
-fn home() -> io::Result<PathBuf> {
+pub(crate) fn home() -> io::Result<PathBuf> {
     if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
         return Ok(PathBuf::from(home));
     }

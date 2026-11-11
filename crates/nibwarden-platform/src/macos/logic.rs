@@ -78,6 +78,24 @@ pub(super) fn bcp47_to_posix(tag: &str) -> Option<String> {
     })
 }
 
+/// What a finished `evaluatePolicy` means: `Ok(true)` if the user authenticated,
+/// `Ok(false)` if they failed, cancelled or the system cancelled the dialog, an error if
+/// the system cannot ask at all. `code` is the `LAError` code (LAError.h) when there was
+/// an error.
+pub(super) fn authentication_outcome(success: bool, code: Option<isize>) -> std::io::Result<bool> {
+    if success {
+        return Ok(true);
+    }
+    match code {
+        // AuthenticationFailed, UserCancel, UserFallback, SystemCancel, AppCancel.
+        Some(-1 | -2 | -3 | -4 | -9) => Ok(false),
+        Some(code) => Err(std::io::Error::other(format!(
+            "the system cannot authenticate you (LAError {code})"
+        ))),
+        None => Ok(false),
+    }
+}
+
 /// Text for a property list `<string>`.
 fn xml_escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -191,6 +209,16 @@ mod tests {
         assert_eq!(posix("en_GB").as_deref(), Some("en_GB"));
         assert_eq!(posix(""), None);
         assert_eq!(posix("x"), None);
+    }
+
+    #[test]
+    fn reads_authentication_results() {
+        assert!(authentication_outcome(true, None).unwrap());
+        assert!(!authentication_outcome(false, Some(-2)).unwrap());
+        assert!(!authentication_outcome(false, Some(-1)).unwrap());
+        // PasscodeNotSet, NotInteractive: nothing to ask with.
+        assert!(authentication_outcome(false, Some(-5)).is_err());
+        assert!(authentication_outcome(false, Some(-1004)).is_err());
     }
 
     #[test]

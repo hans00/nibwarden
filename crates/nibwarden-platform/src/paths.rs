@@ -25,4 +25,4 @@ pub fn config_dir() -> io::Result<PathBuf> {
     not(any(target_os = "linux", target_os = "macos", windows)),
     path = "other/paths.rs"
 )]
-mod imp;
+pub(crate) mod imp;

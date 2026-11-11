@@ -32,6 +32,12 @@ pub mod transport;
 #[cfg(feature = "tray")]
 pub mod tray;
 
+#[cfg(target_os = "macos")]
+#[path = "macos/gui_session.rs"]
+mod gui_session;
+#[cfg(target_os = "macos")]
+#[path = "macos/launchd.rs"]
+mod launchd;
 // The macOS port's parsing and formatting; compiled everywhere so its tests run everywhere.
 #[allow(dead_code, reason = "used on macOS only")]
 #[path = "macos/logic.rs"]
