@@ -81,8 +81,8 @@ impl Peer {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct App {
     pub pid: i32,
-    /// Start time of the process (clock ticks since boot), so a new process that reuses
-    /// the pid is a different application.
+    /// Start time of the process (Linux: clock ticks since boot; macOS: microseconds
+    /// since the epoch), so a new process that reuses the pid is a different application.
     pub started: u64,
     pub exe: Option<PathBuf>,
 }
@@ -105,7 +105,7 @@ impl App {
 )]
 mod imp;
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests {
     use super::*;
 
@@ -114,7 +114,11 @@ mod tests {
         let (a, _b) = Stream::pair().unwrap();
         let peer = Peer::identify_owner(&a).unwrap();
         assert_eq!(peer.pid, Some(std::process::id() as i32));
-        assert_eq!(peer.exe, Some(std::env::current_exe().unwrap()));
+        let canonical = |p: PathBuf| p.canonicalize().unwrap();
+        assert_eq!(
+            peer.exe.map(canonical),
+            Some(canonical(std::env::current_exe().unwrap()))
+        );
         assert!(peer._pin.is_some());
         // Tests run from a local login (or none), never a remote one.
         assert!(!peer.remote_session);
@@ -122,6 +126,7 @@ mod tests {
         assert!(peer.app.is_some());
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn parses_tty_from_stat() {
         let stat = "123 (a b) c)) S 1 123 123 34816 123 0 0";

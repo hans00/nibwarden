@@ -32,8 +32,7 @@ pub fn try_lock(path: &Path) -> io::Result<Option<File>> {
     imp::try_lock(path)
 }
 
-#[cfg_attr(target_os = "linux", path = "linux/fs.rs")]
-#[cfg_attr(target_os = "macos", path = "macos/fs.rs")]
+#[cfg_attr(any(target_os = "linux", target_os = "macos"), path = "unix/fs.rs")]
 #[cfg_attr(windows, path = "windows/fs.rs")]
 #[cfg_attr(
     not(any(target_os = "linux", target_os = "macos", windows)),
@@ -41,7 +40,7 @@ pub fn try_lock(path: &Path) -> io::Result<Option<File>> {
 )]
 mod imp;
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests {
     use super::*;
 

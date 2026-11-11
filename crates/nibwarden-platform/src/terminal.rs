@@ -27,8 +27,10 @@ pub fn read_line(prompt: &str) -> io::Result<String> {
     Ok(line.trim().to_owned())
 }
 
-#[cfg_attr(target_os = "linux", path = "linux/terminal.rs")]
-#[cfg_attr(target_os = "macos", path = "macos/terminal.rs")]
+#[cfg_attr(
+    any(target_os = "linux", target_os = "macos"),
+    path = "unix/terminal.rs"
+)]
 #[cfg_attr(windows, path = "windows/terminal.rs")]
 #[cfg_attr(
     not(any(target_os = "linux", target_os = "macos", windows)),

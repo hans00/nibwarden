@@ -84,8 +84,10 @@ impl AsyncWrite for Stream {
     }
 }
 
-#[cfg_attr(target_os = "linux", path = "linux/transport.rs")]
-#[cfg_attr(target_os = "macos", path = "macos/transport.rs")]
+#[cfg_attr(
+    any(target_os = "linux", target_os = "macos"),
+    path = "unix/transport.rs"
+)]
 #[cfg_attr(windows, path = "windows/transport.rs")]
 #[cfg_attr(
     not(any(target_os = "linux", target_os = "macos", windows)),
@@ -93,7 +95,7 @@ impl AsyncWrite for Stream {
 )]
 pub(crate) mod imp;
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};

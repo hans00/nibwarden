@@ -32,6 +32,11 @@ pub mod transport;
 #[cfg(feature = "tray")]
 pub mod tray;
 
+// The macOS port's parsing and formatting; compiled everywhere so its tests run everywhere.
+#[allow(dead_code, reason = "used on macOS only")]
+#[path = "macos/logic.rs"]
+mod macos_logic;
+
 #[allow(dead_code, reason = "used only where a platform is not ported")]
 #[cfg(not(target_os = "linux"))]
 fn unsupported() -> std::io::Error {

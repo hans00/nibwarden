@@ -5,8 +5,7 @@ pub async fn shutdown_requested() -> std::io::Result<()> {
     imp::shutdown_requested().await
 }
 
-#[cfg_attr(target_os = "linux", path = "linux/signal.rs")]
-#[cfg_attr(target_os = "macos", path = "macos/signal.rs")]
+#[cfg_attr(any(target_os = "linux", target_os = "macos"), path = "unix/signal.rs")]
 #[cfg_attr(windows, path = "windows/signal.rs")]
 #[cfg_attr(
     not(any(target_os = "linux", target_os = "macos", windows)),
