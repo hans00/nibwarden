@@ -222,7 +222,10 @@ fn readable(binding: &str) -> String {
 fn browser_host() -> std::path::PathBuf {
     std::env::current_exe()
         .unwrap_or_default()
-        .with_file_name("nibwarden-browser-host")
+        .with_file_name(format!(
+            "nibwarden-browser-host{}",
+            std::env::consts::EXE_SUFFIX
+        ))
 }
 
 /// Whether the browsers start nibwarden for the Bitwarden extension, and which start

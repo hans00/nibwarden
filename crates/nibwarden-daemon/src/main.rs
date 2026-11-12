@@ -1,5 +1,9 @@
 //! `nibwardend`: the per-user daemon that holds the vault (phase1.md §5).
 
+// Windows: no console window when started at login or from a window. Its log is seen by
+// redirecting stderr (`nibwardend 2> log`); debug builds keep the console.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod approvals;
 mod browser;
 mod control;
@@ -92,7 +96,7 @@ async fn main() -> Result<()> {
         gui: args.gui.or_else(|| {
             let sibling = std::env::current_exe()
                 .ok()?
-                .with_file_name("nibwarden-gui");
+                .with_file_name(format!("nibwarden-gui{}", std::env::consts::EXE_SUFFIX));
             sibling.exists().then_some(sibling)
         }),
     };
@@ -118,7 +122,10 @@ async fn main() -> Result<()> {
     // The browsers may name the browser host of an older installation (a Nix store path
     // changes with every update).
     if let Ok(exe) = std::env::current_exe() {
-        let host = exe.with_file_name("nibwarden-browser-host");
+        let host = exe.with_file_name(format!(
+            "nibwarden-browser-host{}",
+            std::env::consts::EXE_SUFFIX
+        ));
         if host.exists()
             && let Err(e) = nibwarden_platform::native_messaging::refresh(&host)
         {

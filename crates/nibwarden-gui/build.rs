@@ -7,4 +7,14 @@ fn main() {
         .with_default_translation_context(slint_build::DefaultTranslationContext::None);
     slint_build::compile_with_config("ui/main.slint", config).expect("compile ui/main.slint");
     println!("cargo:rerun-if-changed=lang");
+
+    // Windows: the program's icon, in Explorer, the taskbar and Alt-Tab.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let icon = "../../packaging/windows/nibwarden.ico";
+        println!("cargo:rerun-if-changed={icon}");
+        winresource::WindowsResource::new()
+            .set_icon(icon)
+            .compile()
+            .expect("compile the Windows resources");
+    }
 }

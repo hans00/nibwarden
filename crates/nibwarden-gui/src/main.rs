@@ -2,6 +2,10 @@
 //! daemon with the prompt protocol on stdin/stdout (phase2.md E3) and exits as soon as
 //! the prompt is answered, so a typed master password does not linger in this process.
 
+// Windows: no console window behind every window. The daemon still reaches the prompt
+// through stdin/stdout, which a GUI-subsystem program gets when they are redirected.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use std::{process::ExitCode, time::Instant};
 
 fn main() -> ExitCode {

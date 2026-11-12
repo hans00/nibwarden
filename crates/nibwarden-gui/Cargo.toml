@@ -45,3 +45,5 @@ qrcode = { version = "0.14", default-features = false, features = ["image"] }
 
 [build-dependencies]
 slint-build = { workspace = true }
+# The Windows program icon.
+winresource = "0.1"

@@ -4,10 +4,12 @@
 //!   workspace compiles for other platforms.
 //! - `install`: puts the built programs and their files under a prefix, for distribution
 //!   recipes (PKGBUILD, Nix) and for installing from source.
-//! - `dist`: the release artifacts in `target/dist`: .deb, .rpm, a binary tarball, the
-//!   source tarball, the PKGBUILD that builds from it, and their checksums.
-//!
-//! Packages are written directly (ar, tar, rpm), so no distribution tools are needed.
+//! - `dist`: the release artifacts in `target/dist`, for the platform it runs on, and
+//!   their checksums. Linux: .deb, .rpm, a binary tarball, the source tarball and the
+//!   PKGBUILD that builds from it, written directly (ar, tar, rpm), so no distribution
+//!   tools are needed. macOS: `nibwarden.app` (arm64 and x86_64 in one) in a disk image,
+//!   with the system's lipo, sips, iconutil, codesign and hdiutil. Windows: a zip and a
+//!   per-user installer, with Inno Setup's compiler.
 
 use std::{
     ffi::OsStr,
@@ -191,10 +193,26 @@ fn check(targets: &[String]) -> Result<()> {
 
 // --- build and install ---
 
+/// macOS releases hold both architectures (`lipo`).
+const MAC_TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
+
 fn build() -> Result<()> {
+    if std::env::consts::OS == "macos" {
+        for target in MAC_TARGETS {
+            build_for(Some(target))?;
+        }
+        return Ok(());
+    }
+    build_for(None)
+}
+
+fn build_for(target: Option<&str>) -> Result<()> {
     let release = || {
         let mut command = cargo();
         command.env("RUSTFLAGS", release_rustflags());
+        if let Some(target) = target {
+            command.args(["--target", target]);
+        }
         command
     };
     run(release().args([
@@ -214,6 +232,21 @@ fn build() -> Result<()> {
         "-p",
         "nibwarden-gui",
     ]))
+}
+
+/// A built program: `target/[<triple>/]<profile>/<name>[.exe]`.
+fn built(target: Option<&str>, bin: &str) -> PathBuf {
+    let profile = if bin == GUI_BIN {
+        "release-gui"
+    } else {
+        "release"
+    };
+    let mut path = target_dir();
+    if let Some(target) = target {
+        path.push(target);
+    }
+    path.join(profile)
+        .join(format!("{bin}{}", std::env::consts::EXE_SUFFIX))
 }
 
 /// Release builds name sources relative to the workspace and the crate registry, not by
@@ -417,20 +450,12 @@ fn dist() -> Result<()> {
         fs::remove_dir_all(&out)?;
     }
     fs::create_dir_all(&out)?;
-    let mtime = source_date()?;
-    let arch = std::env::consts::ARCH;
-
-    let files = layout(Path::new("/usr"))?;
-    let glibc = min_glibc(&files).context("the programs reference no glibc version")?;
-    let mut written = vec![
-        deb(&out, &files, arch, &glibc, mtime)?,
-        rpm(&out, &files, arch, &glibc, mtime)?,
-        binary_tarball(&out, arch, mtime)?,
-    ];
-    let source = source_tarball(&out)?;
-    written.push(pkgbuild(&out, &source)?);
-    written.push(source);
-
+    let written = match std::env::consts::OS {
+        "linux" => dist_linux(&out)?,
+        "macos" => vec![dist_macos(&out)?],
+        "windows" => dist_windows(&out)?,
+        other => bail!("no packages for {other}"),
+    };
     let mut sums = String::new();
     for path in &written {
         let name = path.file_name().unwrap().to_string_lossy();
@@ -441,6 +466,205 @@ fn dist() -> Result<()> {
         println!("{}", path.display());
     }
     Ok(())
+}
+
+fn dist_linux(out: &Path) -> Result<Vec<PathBuf>> {
+    let mtime = source_date()?;
+    let arch = std::env::consts::ARCH;
+    let files = layout(Path::new("/usr"))?;
+    let glibc = min_glibc(&files).context("the programs reference no glibc version")?;
+    let mut written = vec![
+        deb(out, &files, arch, &glibc, mtime)?,
+        rpm(out, &files, arch, &glibc, mtime)?,
+        binary_tarball(out, arch, mtime)?,
+    ];
+    let source = source_tarball(out)?;
+    written.push(pkgbuild(out, &source)?);
+    written.push(source);
+    Ok(written)
+}
+
+/// `nibwarden.app` with every program in `Contents/MacOS` (they find each other there),
+/// signed ad hoc, or with the identity in `NIBWARDEN_CODESIGN_IDENTITY` (a Developer ID,
+/// with the hardened runtime), in `nibwarden-<version>-macos.dmg`.
+fn dist_macos(out: &Path) -> Result<PathBuf> {
+    let staging = target_dir().join("dist-macos");
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+    let app = staging.join("nibwarden.app");
+    let programs = app.join("Contents/MacOS");
+    let resources = app.join("Contents/Resources");
+    fs::create_dir_all(&programs)?;
+    fs::create_dir_all(&resources)?;
+    for bin in BINS.iter().chain([&GUI_BIN]) {
+        let mut lipo = Command::new("lipo");
+        lipo.arg("-create").arg("-output").arg(programs.join(bin));
+        for target in MAC_TARGETS {
+            lipo.arg(built(Some(target), bin));
+        }
+        run(&mut lipo)?;
+    }
+    fs::write(app.join("Contents/Info.plist"), info_plist())?;
+
+    // The icon in every size Finder and the Dock ask for.
+    let iconset = staging.join("nibwarden.iconset");
+    fs::create_dir_all(&iconset)?;
+    let source = root().join("packaging/macos/nibwarden-1024.png");
+    for size in [16, 32, 128, 256, 512] {
+        for (scale, suffix) in [(1, ""), (2, "@2x")] {
+            let pixels = (size * scale).to_string();
+            run(Command::new("sips")
+                .args(["-z", &pixels, &pixels])
+                .arg(&source)
+                .arg("--out")
+                .arg(iconset.join(format!("icon_{size}x{size}{suffix}.png"))))?;
+        }
+    }
+    run(Command::new("iconutil")
+        .args(["-c", "icns"])
+        .arg(&iconset)
+        .arg("-o")
+        .arg(resources.join("nibwarden.icns")))?;
+    fs::remove_dir_all(&iconset)?;
+
+    let identity = std::env::var("NIBWARDEN_CODESIGN_IDENTITY").unwrap_or_else(|_| "-".into());
+    let sign = |path: &Path| {
+        let mut codesign = Command::new("codesign");
+        codesign.args(["--force", "--sign", &identity]);
+        if identity != "-" {
+            codesign.args(["--options", "runtime", "--timestamp"]);
+        }
+        run(codesign.arg(path))
+    };
+    // The helpers first, the bundle (sealing them) last.
+    for bin in BINS {
+        sign(&programs.join(bin))?;
+    }
+    sign(&app)?;
+
+    for doc in ["README.md", "LICENSE"] {
+        fs::copy(root().join(doc), staging.join(doc))?;
+    }
+    link_applications(&staging)?;
+    let dmg = out.join(format!("{NAME}-{VERSION}-macos.dmg"));
+    run(Command::new("hdiutil")
+        .args(["create", "-volname", &format!("nibwarden {VERSION}")])
+        .arg("-srcfolder")
+        .arg(&staging)
+        .args(["-ov", "-format", "UDZO"])
+        .arg(&dmg))?;
+    Ok(dmg)
+}
+
+/// The disk image's shortcut to drag the app onto.
+#[cfg(unix)]
+fn link_applications(staging: &Path) -> Result<()> {
+    std::os::unix::fs::symlink("/Applications", staging.join("Applications"))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn link_applications(_: &Path) -> Result<()> {
+    bail!("macOS disk images are made on macOS")
+}
+
+fn info_plist() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>nibwarden</string>
+	<key>CFBundleExecutable</key>
+	<string>{GUI_BIN}</string>
+	<key>CFBundleIconFile</key>
+	<string>nibwarden</string>
+	<key>CFBundleIdentifier</key>
+	<string>me.hans00.nibwarden</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>nibwarden</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>{VERSION}</string>
+	<key>CFBundleVersion</key>
+	<string>{VERSION}</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>{LICENSE}</string>
+</dict>
+</plist>
+"#
+    )
+}
+
+/// The programs in `nibwarden-<version>-<arch>-windows.zip`, and the per-user installer
+/// `packaging/windows/nibwarden.iss` makes of them (Inno Setup's `ISCC`, from `ISCC` in
+/// the environment, `PATH` or its default location).
+fn dist_windows(out: &Path) -> Result<Vec<PathBuf>> {
+    let arch = std::env::consts::ARCH;
+    let staging = target_dir().join("dist-windows");
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+    fs::create_dir_all(&staging)?;
+    let mut files = Vec::new();
+    for bin in BINS.iter().chain([&GUI_BIN]) {
+        let name = format!("{bin}.exe");
+        let path = built(None, bin);
+        let content =
+            fs::read(&path).with_context(|| format!("reading {}; build first", path.display()))?;
+        fs::write(staging.join(&name), &content)?;
+        files.push((name, content));
+    }
+    for doc in ["README.md", "LICENSE"] {
+        let content = fs::read(root().join(doc))?;
+        fs::write(staging.join(doc), &content)?;
+        files.push((doc.to_owned(), content));
+    }
+
+    let name = format!("{NAME}-{VERSION}-{arch}-windows");
+    let zip_path = out.join(format!("{name}.zip"));
+    let mut zip = zip::ZipWriter::new(fs::File::create(&zip_path)?);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (file, content) in &files {
+        zip.start_file(format!("{name}/{file}"), options)?;
+        zip.write_all(content)?;
+    }
+    zip.finish()?;
+
+    let iscc = std::env::var_os("ISCC")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let default = Path::new(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe");
+            default.is_file().then(|| default.to_owned())
+        })
+        .unwrap_or_else(|| PathBuf::from("ISCC"));
+    let installer = out.join(format!("{NAME}-{VERSION}-{arch}-setup.exe"));
+    run(Command::new(iscc)
+        .arg(format!("/DAppVersion={VERSION}"))
+        .arg(format!("/DSourceDir={}", staging.display()))
+        .arg(format!("/DOutputDir={}", out.display()))
+        .arg(format!(
+            "/DOutputName={}",
+            installer.file_stem().unwrap().to_string_lossy()
+        ))
+        .arg(format!("/DRepoRoot={}", root().display()))
+        .arg(root().join("packaging/windows/nibwarden.iss")))
+    .context("making the installer needs Inno Setup 6 (ISCC)")?;
+    Ok(vec![zip_path, installer])
 }
 
 fn sha256(data: &[u8]) -> String {

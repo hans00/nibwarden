@@ -537,7 +537,10 @@ fn hint_agent_socket(socket: Option<&str>) {
 fn browser(command: &BrowserCommand) -> Result<()> {
     use nibwarden_platform::native_messaging::{self, Registered};
 
-    let host = std::env::current_exe()?.with_file_name("nibwarden-browser-host");
+    let host = std::env::current_exe()?.with_file_name(format!(
+        "nibwarden-browser-host{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     let browsers = match command {
         BrowserCommand::Enable { replace } => {
             if !host.exists() {
@@ -588,7 +591,10 @@ async fn git_setup(client: &mut Client, wanted: Option<&str>, global: bool) -> R
     let key = pick_key(&keys.keys, wanted)?;
     let scope = if global { Scope::Global } else { Scope::Local };
     // The helper sits next to this binary; fall back to $PATH if it was moved.
-    let helper = std::env::current_exe()?.with_file_name("nibwarden-ssh-sign");
+    let helper = std::env::current_exe()?.with_file_name(format!(
+        "nibwarden-ssh-sign{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     let helper = if helper.exists() {
         helper
     } else {
