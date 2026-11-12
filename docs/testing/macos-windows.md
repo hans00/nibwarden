@@ -2,7 +2,18 @@
 
 macOS 與 Windows 的平台層（phase2.md §8）只經過交叉編譯、CI 上的單元測試，以及 Windows 在 Wine 下的測試。下面每一項都要在實機上確認過，README 才能拿掉「尚未支援」。
 
-建置：`cargo build --release`，執行檔放在同一個目錄（`nibwardend`、`nibwarden`、`nibwarden-gui`、`nibwarden-ssh-sign`、`nibwarden-browser-host`）。
+安裝：
+
+- **macOS：** 打開 `nibwarden-<版本>-macos.dmg`，把 nibwarden 拖進「應用程式」。這個 app 只有 ad hoc 簽章，沒有經過公證，所以第一次打開時要在 Finder 裡按右鍵選「打開」，或到「系統設定 > 隱私權與安全性」允許它。命令列工具在 app 裡面：`sudo ln -s /Applications/nibwarden.app/Contents/MacOS/nibwarden /usr/local/bin/`，`nibwarden-ssh-sign` 也一樣處理。
+- **Windows：** 執行 `nibwarden-<版本>-x86_64-setup.exe`，不需要系統管理員權限。安裝後重新打開終端機，`nibwarden` 就會在 PATH 裡。SmartScreen 可能會警告這是未簽章的程式。
+
+另外要測：
+
+- [ ] 安裝與移除。移除之後，登入啟動項、瀏覽器註冊（Windows）都會被清掉，PATH 也會還原。
+- [ ] 用新版本覆蓋安裝時，正在執行的 nibwarden 會被關閉，安裝之後能正常啟動。
+- [ ] macOS：app 的圖示、Dock 與 Cmd-Tab 裡的名稱都正確。Windows：開始功能表、工作列、Alt-Tab 裡都有 nibwarden 的圖示，而且開視窗時不會跳出主控台。
+
+從原始碼建置：`cargo build --release`，執行檔要放在同一個目錄（`nibwardend`、`nibwarden`、`nibwarden-gui`、`nibwarden-ssh-sign`、`nibwarden-browser-host`）。
 
 ## 共同
 
