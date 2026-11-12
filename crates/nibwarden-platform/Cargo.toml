@@ -12,6 +12,8 @@ homepage.workspace = true
 [features]
 # The GUI's clipboard; kept out of the daemon.
 clipboard = ["dep:arboard"]
+# The quick access shortcut where a process must hold it (macOS, Windows).
+hotkey = ["dep:global-hotkey"]
 # The GUI's tray icon.
 tray = ["dep:ksni", "dep:tray-icon", "dep:dispatch2", "dep:objc2-app-kit", "dep:windows-sys"]
 
@@ -37,6 +39,8 @@ libc = { workspace = true }
 # The tray icon; on Linux ksni instead (tray-icon would need GTK there).
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
 tray-icon = { version = "0.26", optional = true, default-features = false }
+# The quick access shortcut, held by a process of ours (shortcut.rs).
+global-hotkey = { version = "0.10", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"

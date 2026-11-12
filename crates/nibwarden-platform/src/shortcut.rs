@@ -1,6 +1,8 @@
 //! A desktop-wide keyboard shortcut that runs a command (phase2.md §7): the way to call
-//! up quick access. Wayland lets no ordinary program grab keys itself, so the shortcut is
-//! added to the desktop's own settings.
+//! up quick access. Wayland lets no ordinary program grab keys itself, so on Linux the
+//! shortcut is added to the desktop's own settings. macOS and Windows run no commands for
+//! keys: there [`install`] only records the binding, and a process of ours holds the key
+//! ([`hold`], `nibwarden-gui shortcut`) and opens quick access itself.
 
 use std::io;
 
@@ -32,9 +34,25 @@ pub fn supported() -> bool {
     imp::supported()
 }
 
+/// Whether a process of ours has to hold the shortcut with [`hold`] (macOS, Windows).
+pub fn needs_holder() -> bool {
+    imp::NEEDS_HOLDER
+}
+
+/// The shortcut, registered for this process until dropped.
+#[cfg(feature = "hotkey")]
+pub struct Held(#[allow(dead_code, reason = "kept for its Drop")] imp::Held);
+
+/// Registers `binding` (as for [`install`]) for this process; `pressed` runs, on any
+/// thread, each time it is pressed. Call it on the thread that runs
+/// [`crate::main_thread::wait`]: the key's events arrive through that loop.
+#[cfg(feature = "hotkey")]
+pub fn hold(binding: &str, pressed: impl Fn() + Send + Sync + 'static) -> io::Result<Held> {
+    imp::hold(binding, Box::new(pressed)).map(Held)
+}
+
 #[cfg_attr(target_os = "linux", path = "linux/shortcut.rs")]
-#[cfg_attr(target_os = "macos", path = "macos/shortcut.rs")]
-#[cfg_attr(windows, path = "windows/shortcut.rs")]
+#[cfg_attr(any(target_os = "macos", windows), path = "desktop/shortcut.rs")]
 #[cfg_attr(
     not(any(target_os = "linux", target_os = "macos", windows)),
     path = "other/shortcut.rs"

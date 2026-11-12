@@ -7,6 +7,7 @@ mod account;
 pub mod appearance;
 mod developer;
 mod editor;
+pub mod hotkey;
 mod icons;
 pub mod prompt;
 pub mod quick;

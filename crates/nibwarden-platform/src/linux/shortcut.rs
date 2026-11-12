@@ -123,3 +123,16 @@ pub(super) fn format_string_list(items: &[String]) -> String {
     let quoted: Vec<String> = items.iter().map(|i| format!("'{i}'")).collect();
     format!("[{}]", quoted.join(", "))
 }
+
+pub const NEEDS_HOLDER: bool = false;
+
+#[cfg(feature = "hotkey")]
+pub enum Held {}
+
+#[cfg(feature = "hotkey")]
+pub fn hold(_: &str, _: Box<dyn Fn() + Send + Sync>) -> io::Result<Held> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "the desktop runs the shortcut itself here",
+    ))
+}

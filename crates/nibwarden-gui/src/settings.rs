@@ -413,7 +413,8 @@ fn connect(ui: &SettingsWindow) {
             Err(_) => "nibwarden-gui quick".to_owned(),
         };
         let result =
-            nibwarden_platform::shortcut::install("nibwarden quick access", &command, &binding);
+            nibwarden_platform::shortcut::install("nibwarden quick access", &command, &binding)
+                .and_then(|installed| crate::hotkey::set(true).map(|()| installed));
         if let Some(ui) = weak.upgrade() {
             ui.set_shortcut_status(match result {
                 Ok(_) => SharedString::new(),
@@ -425,7 +426,8 @@ fn connect(ui: &SettingsWindow) {
     });
     let weak = ui.as_weak();
     ui.on_shortcut_cleared(move || {
-        let result = nibwarden_platform::shortcut::remove();
+        let result =
+            nibwarden_platform::shortcut::remove().and_then(|()| crate::hotkey::set(false));
         if let Some(ui) = weak.upgrade() {
             ui.set_shortcut_status(match result {
                 Ok(()) => SharedString::new(),
