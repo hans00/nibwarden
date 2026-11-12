@@ -88,7 +88,11 @@ impl PromptBroker {
     pub fn is_own_gui(&self, peer: &Peer) -> bool {
         let canonical = |p: &Path| std::fs::canonicalize(p).ok();
         match (&peer.exe, &self.gui) {
-            (Some(exe), Some(gui)) => canonical(gui).is_some_and(|gui| *exe == gui),
+            // Both canonical: on Windows that is the `\\?\` form, which a process's
+            // image path is not.
+            (Some(exe), Some(gui)) => {
+                canonical(gui).is_some_and(|gui| canonical(exe).is_some_and(|exe| exe == gui))
+            }
             _ => false,
         }
     }

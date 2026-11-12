@@ -207,15 +207,15 @@ fn build() -> Result<()> {
 }
 
 fn build_for(target: Option<&str>) -> Result<()> {
-    let release = || {
+    let release = |args: &[&str]| {
         let mut command = cargo();
-        command.env("RUSTFLAGS", release_rustflags());
+        command.env("RUSTFLAGS", release_rustflags()).args(args);
         if let Some(target) = target {
             command.args(["--target", target]);
         }
         command
     };
-    run(release().args([
+    run(&mut release(&[
         "build",
         "--release",
         "--locked",
@@ -224,7 +224,7 @@ fn build_for(target: Option<&str>) -> Result<()> {
         "-p",
         "nibwarden-daemon",
     ]))?;
-    run(release().args([
+    run(&mut release(&[
         "build",
         "--profile",
         "release-gui",
