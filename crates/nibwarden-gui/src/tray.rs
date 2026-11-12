@@ -186,6 +186,8 @@ pub fn run(autostarted: bool) -> ExitCode {
     // Ends `serve`, which removes the icon.
     drop(_follow);
     let _ = worker.join();
+    // macOS and Windows remove it on this thread (platform `main_thread`).
+    nibwarden_platform::main_thread::wait(Some(Duration::ZERO));
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

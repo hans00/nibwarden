@@ -15,6 +15,8 @@ pub mod display;
 pub mod fs;
 pub mod hardening;
 pub mod locale;
+#[cfg(feature = "tray")]
+pub mod main_thread;
 pub mod native_messaging;
 pub mod notify;
 pub mod paths;

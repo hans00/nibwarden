@@ -1,5 +1,7 @@
 //! An icon in the desktop's system tray with a menu (phase2.md P2-M8). Linux: a
-//! StatusNotifierItem, shown by KDE and by GNOME with the AppIndicator extension.
+//! StatusNotifierItem, shown by KDE and by GNOME with the AppIndicator extension. macOS
+//! (menu bar) and Windows (notification area): made on the thread that runs
+//! [`crate::main_thread::wait`].
 
 use std::io;
 
@@ -54,8 +56,7 @@ impl Tray {
 type OnChosen = Box<dyn Fn(Chosen) + Send + Sync>;
 
 #[cfg_attr(target_os = "linux", path = "linux/tray.rs")]
-#[cfg_attr(target_os = "macos", path = "macos/tray.rs")]
-#[cfg_attr(windows, path = "windows/tray.rs")]
+#[cfg_attr(any(target_os = "macos", windows), path = "desktop/tray.rs")]
 #[cfg_attr(
     not(any(target_os = "linux", target_os = "macos", windows)),
     path = "other/tray.rs"

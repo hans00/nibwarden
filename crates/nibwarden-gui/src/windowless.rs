@@ -1,13 +1,16 @@
 //! A Slint platform without windows, for the tray icon: it needs Slint only for the
 //! translated texts (`TrayText`), its timers and its event loop. winit would make a
 //! native window for every component, shown or not, and on Wayland that hidden toplevel
-//! (app id `nibwarden`) keeps the app in the dock.
+//! (app id `nibwarden`) keeps the app in the dock. The loop waits in the platform's
+//! `main_thread`, which also runs the tray icon's native events on macOS and Windows.
 
 use std::{
     rc::Rc,
     sync::mpsc,
     time::{Duration, Instant},
 };
+
+use nibwarden_platform::main_thread;
 
 use slint::platform::{
     EventLoopProxy, Platform, WindowAdapter,
@@ -31,7 +34,9 @@ impl EventLoopProxy for Proxy {
     fn quit_event_loop(&self) -> Result<(), slint::EventLoopError> {
         self.0
             .send(Event::Quit)
-            .map_err(|_| slint::EventLoopError::EventLoopTerminated)
+            .map_err(|_| slint::EventLoopError::EventLoopTerminated)?;
+        main_thread::wake();
+        Ok(())
     }
 
     fn invoke_from_event_loop(
@@ -40,7 +45,9 @@ impl EventLoopProxy for Proxy {
     ) -> Result<(), slint::EventLoopError> {
         self.0
             .send(Event::Run(event))
-            .map_err(|_| slint::EventLoopError::EventLoopTerminated)
+            .map_err(|_| slint::EventLoopError::EventLoopTerminated)?;
+        main_thread::wake();
+        Ok(())
     }
 }
 
@@ -60,21 +67,16 @@ impl Platform for Windowless {
     fn run_event_loop(&self) -> Result<(), slint::PlatformError> {
         loop {
             slint::platform::update_timers_and_animations();
-            let event = match slint::platform::duration_until_next_timer_update() {
-                Some(wait) => match self.events.recv_timeout(wait) {
-                    Ok(event) => event,
-                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
-                },
-                None => match self.events.recv() {
-                    Ok(event) => event,
-                    Err(_) => return Ok(()),
-                },
-            };
-            match event {
-                Event::Run(run) => run(),
-                Event::Quit => return Ok(()),
+            loop {
+                match self.events.try_recv() {
+                    Ok(Event::Run(run)) => run(),
+                    Ok(Event::Quit) => return Ok(()),
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
+                }
             }
+            // An event sent from now on wakes the wait, or finds it already woken.
+            main_thread::wait(slint::platform::duration_until_next_timer_update());
         }
     }
 }
