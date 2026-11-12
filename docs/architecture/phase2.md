@@ -351,24 +351,29 @@ vault 上鎖時：
 
 ## 8. 平台抽象層（`nibwarden-platform`）
 
-| 模組 | 介面 | Linux（本階段實作） | 階段 1 的現況 | macOS（之後） | Windows（之後） |
-|---|---|---|---|---|---|
-| `paths` | 資料、設定、執行時目錄 | XDG | `nibwarden-ipc::paths`、daemon | `~/Library/Application Support`；socket 放 `$TMPDIR`（路徑上限 104 bytes） | `%LOCALAPPDATA%` |
-| `transport` | 本機 IPC 的 listener、stream、client 連線；只允許目前使用者 | Unix socket，`0600`，目錄 `0700` | daemon 的 `bind()`、IPC client | Unix socket | Named pipe，DACL 只允許目前使用者 |
-| `peer` | 連線對方的身分：pid、使用者、執行檔路徑、是否為遠端工作階段；pid 重用防護 | `SO_PEERCRED` + pidfd + `/proc/<pid>/exe`、logind session | `nibwarden-daemon::peer` | `LOCAL_PEERCRED` + `LOCAL_PEERTOKEN` + `proc_pidpath` | `GetNamedPipeClientProcessId` + token SID + `QueryFullProcessImageNameW` |
-| `clock` | 包含休眠時間的單調時鐘 | `CLOCK_BOOTTIME` | daemon 的閒置計時 | `mach_continuous_time` | `QueryInterruptTime` |
-| `hardening` | 禁止 core dump、禁止 debugger 附加 | `PR_SET_DUMPABLE=0`、`RLIMIT_CORE=0` | daemon 的 `main` | `PT_DENY_ATTACH`、`RLIMIT_CORE=0` | `SetProcessMitigationPolicy`、關閉 WER dump |
-| `service` | 按需啟動 daemon、安裝自動啟動 | `systemctl --user start`、systemd user unit | CLI 的 `connect` | LaunchAgent | 登入啟動項（不是服務：服務在 session 0，不能開視窗） |
-| `process` | 以另一個程式取代自己（`run`、`nibwarden-ssh-sign`） | `exec` | CLI | `exec` | 啟動子程序、等待、回傳結束碼 |
-| `terminal` | 是否有終端機、在終端機上讀取輸入 | `/dev/tty` | CLI | `/dev/tty` | `CONIN$` |
-| `notify` | 桌面通知，可帶「解鎖」動作與 activation token | freedesktop Notifications（D-Bus，取代 `notify-send`） | daemon 的 `ssh_agent` | `UNUserNotificationCenter` | Toast |
-| `session_events` | 螢幕鎖定、使用者切換、休眠前的事件 | logind D-Bus | 無（新功能） | `NSWorkspace` 通知 | `WTSRegisterSessionNotification`、`WM_POWERBROADCAST` |
-| `clipboard` | 寫入敏感內容、逾時清除 | Wayland／X11（`x-kde-passwordManagerHint`） | 無（新功能） | `org.nspasteboard.ConcealedType` | `ExcludeClipboardContentFromMonitorProcessing` |
-| `shortcut` | 全域快捷鍵 | GlobalShortcuts portal，後備為寫入桌面設定 | 無（新功能） | `global-hotkey` | `global-hotkey` |
-| `foreground` | 把 GUI 視窗叫到前景 | xdg-activation、`_NET_ACTIVE_WINDOW` | 無（新功能） | `LSUIElement` app 加上 activate | `SetForegroundWindow` 與後備 |
+每個模組的介面在 `src/<模組>.rs`，實作依平台放在 `linux/`、`macos/`、`windows/`、`other/`（回報 Unsupported）；Linux 與 macOS 相同的部分放在 `unix/`，macOS 與 Windows 共用的桌面部分放在 `desktop/`。macOS 與 Windows 的實作（2026-11-12）只經過交叉編譯、CI 的單元測試與 Wine，尚待在實機上依 `docs/testing/macos-windows.md` 驗證。
 
-- SSH agent 用的也是 `transport`。Windows 上的 agent pipe 名稱與系統 `openssh-ssh-agent` 的衝突，到移植時再處理。
-- `foreground` 只有 GUI 會用；`nibwarden-platform` 以 feature 區分，daemon 不會因此連結到 GUI 相關的依賴。
+| 模組 | 介面 | Linux | macOS | Windows |
+|---|---|---|---|---|
+| `paths` | 資料、設定、執行時目錄 | XDG | `~/Library/Application Support/nibwarden`；socket 在 `~/Library/Caches/nibwarden`（`$TMPDIR` 會被系統清掉；路徑上限 104 bytes） | `%LOCALAPPDATA%`、`%APPDATA%`；`runtime_dir` 為 `%LOCALAPPDATA%\nibwarden\run`（鎖檔用） |
+| `transport` | 本機 IPC；只允許目前使用者 | Unix socket，`0600`，目錄 `0700` | 同 Linux（`unix/`） | Named pipe `\\.\pipe\nibwarden-<SID>-<名稱>`：受保護的 DACL 只有目前使用者、`FILE_FLAG_FIRST_PIPE_INSTANCE`、拒絕遠端；client 確認 server 是同一個使用者。`transport::endpoint` 給出別的程式要用的名稱 |
+| `peer` | pid、執行檔、終端機、應用程式、是否遠端；pid 重用防護 | `SO_PEERCRED` + pidfd + `/proc`、logind session | `getpeereid` + `LOCAL_PEERPID` + `proc_pidinfo`／`proc_pidpath`；前後兩次讀取的啟動時間須一致（沒有 pidfd，防護較弱）；遠端＝祖先有 `sshd` | `GetNamedPipeClientProcessId`、持有 process handle、token SID；遠端＝session 0、RDP 或祖先有 `sshd`；沒有終端機概念（「每個終端機分頁」退為每個應用程式） |
+| `clock` | 包含休眠時間的單調時鐘 | `CLOCK_BOOTTIME` | `mach_continuous_time` | `QueryInterruptTime` 與 `GetTickCount64` 取大者 |
+| `hardening` | 禁止 core dump、禁止 debugger 附加 | `PR_SET_DUMPABLE=0`、`RLIMIT_CORE=0` | `RLIMIT_CORE=0`、release 版 `PT_DENY_ATTACH` | 關閉 WER、process DACL 拒絕讀取記憶體、mitigation policy |
+| `service` | 按需啟動 daemon、登入時啟動 | systemd user unit | LaunchAgent（`launchctl bootstrap`／`kickstart`，失敗時直接啟動） | 直接啟動（detached）；登入啟動用 `HKCU\…\Run`（服務在 session 0，不能開視窗） |
+| `autostart` | 登入時啟動 GUI 的背景程式（系統匣、快捷鍵） | XDG autostart | LaunchAgent `RunAtLoad` | `HKCU\…\Run`，尊重「設定 > 啟動應用程式」的開關 |
+| `process` | 以另一個程式取代自己 | `exec` | `exec` | 啟動子程序、等待、以其結束碼結束 |
+| `terminal` | 終端機上讀取輸入 | `/dev/tty` | `/dev/tty` | `CONIN$`／`CONOUT$` |
+| `polkit` | 系統驗證解鎖 | polkit | LocalAuthentication（Touch ID 或登入密碼） | Windows Hello（`UserConsentVerifier`，對話框掛在 GUI 視窗上） |
+| `notify` | 桌面通知 | freedesktop Notifications | `osascript` | Toast（以 PowerShell 的身分） |
+| `session_events` | 螢幕鎖定、休眠 | logind D-Bus | `IORegisterForSystemPower`；螢幕鎖定每秒查詢一次 | `WTSRegisterSessionNotification`、`RegisterSuspendResumeNotification`（Modern Standby 沒有休眠事件） |
+| `clipboard` | 寫入敏感內容、逾時清除 | Wayland／X11（不進剪貼簿歷史） | `org.nspasteboard.ConcealedType` | 不進剪貼簿歷史與雲端剪貼簿 |
+| `tray`、`main_thread` | 系統匣圖示 | StatusNotifierItem（ksni） | 選單列（tray-icon），在主執行緒的 AppKit 事件迴圈 | 通知區域（tray-icon），在主執行緒的訊息佇列 |
+| `shortcut` | 全域快捷鍵 | GNOME 的自訂快捷鍵（gsettings） | 由 `nibwarden-gui shortcut` 持有（global-hotkey） | 同 macOS |
+| `native_messaging` | 瀏覽器擴充套件的 host manifest | 各瀏覽器的 XDG 目錄 | `~/Library/Application Support/<瀏覽器>/NativeMessagingHosts` | `HKCU\Software\<瀏覽器>\NativeMessagingHosts` 指向資料目錄裡的 manifest |
+
+- SSH agent 用的也是 `transport`。Windows 的 agent pipe 是 `nibwarden-<SID>-ssh-agent`，不和系統的 `openssh-ssh-agent` 衝突；Git for Windows 內建的 ssh 不支援 named pipe，所以設定 ssh 時一併把 git 的 `core.sshCommand` 指向系統的 OpenSSH。
+- 系統匣與快捷鍵只有 GUI 會用；`nibwarden-platform` 以 feature 區分（`tray`、`hotkey`、`clipboard`），daemon 不會因此連結到 GUI 相關的依賴。
 
 ---
 
