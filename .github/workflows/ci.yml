@@ -21,16 +21,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Build dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libfontconfig-dev libfreetype-dev gettext
+        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y pkg-config libfontconfig-dev libfreetype-dev gettext
       - uses: Swatinem/rust-cache@v2
       - run: cargo xtask check
       - name: Translations
         run: for po in crates/nibwarden-gui/lang/*/LC_MESSAGES/*.po; do msgfmt -c -o /dev/null "$po"; done
 
   platforms:
-    # nibwarden runs on Linux only so far; the other platforms' stubs must keep compiling,
-    # so no Linux-only type leaks into the shared interfaces.
-    name: Compiles (${{ matrix.os }})
+    name: Checks (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +41,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
 
   e2e:
     name: End to end (Vaultwarden)
@@ -52,7 +51,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Build and test dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libfontconfig-dev libfreetype-dev jq openssh-client openssh-server
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y pkg-config libfontconfig-dev libfreetype-dev jq openssh-client openssh-server
       - uses: Swatinem/rust-cache@v2
       - run: scripts/e2e.sh
