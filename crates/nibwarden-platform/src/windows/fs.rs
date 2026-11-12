@@ -299,9 +299,8 @@ mod windows_tests {
             // Wine does not keep the DACL of a file or directory (not on every filesystem).
             return;
         }
-        let sid = current_user().unwrap().to_sddl().unwrap();
         assert!(sddl.starts_with("D:P"), "{sddl}");
-        assert!(sddl.ends_with(&format!(";;;{sid})")), "{sddl}");
+        assert!(crate::winutil::last_trustee_is_current_user(sddl), "{sddl}");
         assert_eq!(sddl.matches("(A;").count(), 1, "{sddl}");
         assert_eq!(sddl.matches("(D;").count(), 0, "{sddl}");
     }

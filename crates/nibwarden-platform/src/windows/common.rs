@@ -523,6 +523,85 @@ pub mod run_key {
     }
 }
 
+/// Tests: whether the last entry of the SDDL `sddl` names the current user, however the
+/// system spells it (`S-1-5-21-…`, or an alias such as `LA` for the built-in
+/// Administrator, which CI runs as).
+#[cfg(test)]
+pub fn last_trustee_is_current_user(sddl: &str) -> bool {
+    use windows::Win32::Security::Authorization::ConvertStringSidToSidW;
+
+    let Some(trustee) = sddl
+        .strip_suffix(')')
+        .and_then(|rest| rest.rsplit(';').next())
+    else {
+        return false;
+    };
+    let text = wide(OsStr::new(trustee));
+    let mut sid = PSID::default();
+    // SAFETY: `text` is NUL-terminated; the SID returned is LocalAlloc'd, copied and freed.
+    unsafe {
+        if ConvertStringSidToSidW(PCWSTR(text.as_ptr()), &mut sid).is_err() {
+            return false;
+        }
+        let ours = Sid::copy_of(sid).is_ok_and(|sid| Some(sid) == current_user().ok());
+        let _ = LocalFree(Some(HLOCAL(sid.0)));
+        ours
+    }
+}
+
+/// Tests: whether this process has `SeDebugPrivilege` enabled, as an elevated
+/// administrator's may: it opens any process whatever its DACL says.
+#[cfg(test)]
+pub fn debug_privilege_enabled() -> bool {
+    use windows::{
+        Win32::{
+            Foundation::{CloseHandle, LUID},
+            Security::{
+                LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED, TOKEN_PRIVILEGES, TokenPrivileges,
+            },
+        },
+        core::w,
+    };
+
+    // SAFETY: the token handle is ours and closed; the buffer is sized by the first call
+    // and read as the TOKEN_PRIVILEGES it holds.
+    unsafe {
+        let mut debug = LUID::default();
+        if LookupPrivilegeValueW(PCWSTR::null(), w!("SeDebugPrivilege"), &mut debug).is_err() {
+            return false;
+        }
+        let mut token = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        let mut size = 0;
+        let _ = GetTokenInformation(token, TokenPrivileges, None, 0, &mut size);
+        let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+        let ok = GetTokenInformation(
+            token,
+            TokenPrivileges,
+            Some(buffer.as_mut_ptr().cast()),
+            size,
+            &mut size,
+        )
+        .is_ok();
+        let _ = CloseHandle(token);
+        if !ok {
+            return false;
+        }
+        let privileges = &*buffer.as_ptr().cast::<TOKEN_PRIVILEGES>();
+        let all = std::slice::from_raw_parts(
+            privileges.Privileges.as_ptr(),
+            privileges.PrivilegeCount as usize,
+        );
+        all.iter().any(|p| {
+            p.Luid.LowPart == debug.LowPart
+                && p.Luid.HighPart == debug.HighPart
+                && p.Attributes.contains(SE_PRIVILEGE_ENABLED)
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{registry, run_key};

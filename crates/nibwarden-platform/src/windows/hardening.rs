@@ -175,7 +175,11 @@ mod tests {
             let limited = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
             assert!(limited.is_ok());
             let _ = windows::Win32::Foundation::CloseHandle(limited.unwrap());
-            if !crate::winutil::under_wine() {
+            // An elevated administrator with SeDebugPrivilege on (CI's runner) passes any
+            // DACL, as Windows intends; everyone else must be refused.
+            if crate::winutil::debug_privilege_enabled() {
+                eprintln!("SeDebugPrivilege is enabled: the DACL cannot be tested here");
+            } else if !crate::winutil::under_wine() {
                 assert!(OpenProcess(PROCESS_VM_READ, false, pid).is_err());
             }
         }

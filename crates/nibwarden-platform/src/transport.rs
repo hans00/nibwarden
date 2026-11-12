@@ -258,10 +258,12 @@ mod windows_tests {
             let _ = LocalFree(Some(HLOCAL(descriptor.0)));
             sddl
         };
-        let sid = crate::winutil::current_user().unwrap().to_sddl().unwrap();
         // Protected, one entry, for our SID: no Everyone, Anonymous or network.
         assert!(sddl.starts_with("D:P(A;"), "{sddl}");
-        assert!(sddl.ends_with(&format!(";;;{sid})")), "{sddl}");
+        assert!(
+            crate::winutil::last_trustee_is_current_user(&sddl),
+            "{sddl}"
+        );
         assert_eq!(sddl.matches("(A;").count(), 1, "{sddl}");
         assert!(!sddl.contains("(D;") && !sddl.contains(";;;WD)"), "{sddl}");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
