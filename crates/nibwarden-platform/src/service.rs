@@ -18,53 +18,11 @@ pub fn starts_at_login() -> bool {
     imp::starts_at_login()
 }
 
-#[cfg(target_os = "linux")]
-mod imp {
-    use std::process::Command;
-
-    /// `systemctl --user enable` (the unit is wanted by default.target).
-    pub fn set_start_at_login(on: bool) -> std::io::Result<()> {
-        let verb = if on { "enable" } else { "disable" };
-        let out = Command::new("systemctl")
-            .args(["--user", verb, "nibwardend.service"])
-            .output()?;
-        if !out.status.success() {
-            return Err(std::io::Error::other(format!(
-                "systemctl --user {verb}: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            )));
-        }
-        Ok(())
-    }
-
-    pub fn starts_at_login() -> bool {
-        Command::new("systemctl")
-            .args(["--user", "is-enabled", "--quiet", "nibwardend.service"])
-            .status()
-            .is_ok_and(|s| s.success())
-    }
-
-    /// `systemctl --user start nibwardend.service` (packaging/systemd).
-    pub async fn start_daemon() -> bool {
-        tokio::process::Command::new("systemctl")
-            .args(["--user", "start", "nibwardend.service"])
-            .status()
-            .await
-            .is_ok_and(|s| s.success())
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-mod imp {
-    pub async fn start_daemon() -> bool {
-        false
-    }
-
-    pub fn set_start_at_login(_: bool) -> std::io::Result<()> {
-        Err(crate::unsupported())
-    }
-
-    pub fn starts_at_login() -> bool {
-        false
-    }
-}
+#[cfg_attr(target_os = "linux", path = "linux/service.rs")]
+#[cfg_attr(target_os = "macos", path = "macos/service.rs")]
+#[cfg_attr(windows, path = "windows/service.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/service.rs"
+)]
+mod imp;

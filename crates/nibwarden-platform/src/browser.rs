@@ -42,37 +42,14 @@ fn web_url(uri: &str) -> Option<String> {
     }
 }
 
-#[cfg(target_os = "linux")]
-mod imp {
-    use std::{
-        io,
-        process::{Command, Stdio},
-    };
-
-    pub fn open(url: &str) -> io::Result<()> {
-        let mut child = Command::new("xdg-open")
-            .arg(url)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-        // Reap it without blocking the caller; xdg-open exits once the browser has it.
-        std::thread::spawn(move || child.wait());
-        Ok(())
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-mod imp {
-    use std::io;
-
-    pub fn open(_: &str) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "opening websites is not supported on this platform yet",
-        ))
-    }
-}
+#[cfg_attr(target_os = "linux", path = "linux/browser.rs")]
+#[cfg_attr(target_os = "macos", path = "macos/browser.rs")]
+#[cfg_attr(windows, path = "windows/browser.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/browser.rs"
+)]
+mod imp;
 
 #[cfg(test)]
 mod tests {

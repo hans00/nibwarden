@@ -96,7 +96,12 @@ pub fn connect(ui: &SettingsWindow) {
 fn sign_with(ui: &SettingsWindow, key: &SshKeyEntry) {
     // Next to this program, as the CLI does; by name if it was moved.
     let helper = std::env::current_exe()
-        .map(|exe| exe.with_file_name("nibwarden-ssh-sign"))
+        .map(|exe| {
+            exe.with_file_name(format!(
+                "nibwarden-ssh-sign{}",
+                std::env::consts::EXE_SUFFIX
+            ))
+        })
         .ok()
         .filter(|h| h.exists())
         .unwrap_or_else(|| PathBuf::from("nibwarden-ssh-sign"));
@@ -130,7 +135,7 @@ fn agent_socket() -> Result<PathBuf, String> {
             .ok_or_else(|| "nibwardend runs without its SSH agent".to_owned());
     }
     nibwarden_ipc::default_socket_path()
-        .map(|p| p.with_file_name("ssh-agent.sock"))
+        .map(|p| nibwarden_platform::transport::endpoint(&p.with_file_name("ssh-agent.sock")))
         .ok_or_else(|| "no runtime directory".to_owned())
 }
 

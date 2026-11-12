@@ -14,7 +14,10 @@ use nibwarden_platform::{process, terminal};
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    let mut keygen = std::process::Command::new("ssh-keygen");
+    // Windows: its own OpenSSH, since the ssh-keygen that comes with Git for Windows
+    // cannot reach an agent through a named pipe.
+    let mut keygen =
+        std::process::Command::new(nibwarden_config::integration::openssh("ssh-keygen"));
     keygen.args(&args);
     if is_sign(&args) {
         match agent_socket().await {

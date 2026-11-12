@@ -12,10 +12,13 @@ homepage.workspace = true
 [features]
 # The GUI's clipboard; kept out of the daemon.
 clipboard = ["dep:arboard"]
+# The quick access shortcut where a process must hold it (macOS, Windows).
+hotkey = ["dep:global-hotkey"]
 # The GUI's tray icon.
-tray = ["dep:ksni"]
+tray = ["dep:ksni", "dep:tray-icon", "dep:dispatch2", "dep:objc2-app-kit", "dep:windows-sys"]
 
 [dependencies]
+arboard = { workspace = true, optional = true }
 rpassword = { workspace = true }
 # Native messaging host manifests.
 serde_json = { workspace = true }
@@ -24,13 +27,75 @@ tracing = { workspace = true }
 zeroize = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-arboard = { workspace = true, optional = true }
 futures-util = { workspace = true }
 ksni = { version = "0.3", optional = true }
-libc = { workspace = true }
 # Asking EGL whether OpenGL works, before the GUI picks its renderer.
 libloading = "0.8"
 zbus = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+# The tray icon; on Linux ksni instead (tray-icon would need GTK there).
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+tray-icon = { version = "0.26", optional = true, default-features = false }
+# The quick access shortcut, held by a process of ours (shortcut.rs).
+global-hotkey = { version = "0.10", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+# The tray's main loop (main_thread.rs): AppKit's events and the main queue.
+dispatch2 = { version = "0.3", optional = true }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSApplication", "NSEvent", "NSGraphicsContext", "NSResponder", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDate", "NSError", "NSGeometry", "NSObjCRuntime", "NSRunLoop", "NSString"] }
+# System authentication (Touch ID or the login password).
+objc2-local-authentication = { version = "0.3.2", default-features = false, features = ["std", "block2", "LAContext", "LAError", "LAPublicDefines"] }
+
+# `windows` rather than `windows-sys`: Windows Hello (UserConsentVerifier) is a WinRT API.
+# Pinned to the version already in Cargo.lock.
+[target.'cfg(windows)'.dependencies]
+futures-util = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
+windows-future = "=0.3.2"
+windows = { version = "=0.62.2", features = [
+    "Data_Xml_Dom",
+    "Foundation",
+    "Security_Credentials_UI",
+    "UI_Notifications",
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_OpenGL",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ErrorReporting",
+    "Win32_System_IO",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_WinRT",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+# The tray's main loop (main_thread.rs) and the taskbar's theme, with the
+# `windows-sys` that tray-icon uses anyway.
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [[example]]
 name = "clipboard-check"

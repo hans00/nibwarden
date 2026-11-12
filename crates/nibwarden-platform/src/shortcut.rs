@@ -1,6 +1,8 @@
 //! A desktop-wide keyboard shortcut that runs a command (phase2.md §7): the way to call
-//! up quick access. Wayland lets no ordinary program grab keys itself, so the shortcut is
-//! added to the desktop's own settings.
+//! up quick access. Wayland lets no ordinary program grab keys itself, so on Linux the
+//! shortcut is added to the desktop's own settings. macOS and Windows run no commands for
+//! keys: there [`install`] only records the binding, and a process of ours holds the key
+//! ([`hold`], `nibwarden-gui shortcut`) and opens quick access itself.
 
 use std::io;
 
@@ -32,155 +34,30 @@ pub fn supported() -> bool {
     imp::supported()
 }
 
-#[cfg(target_os = "linux")]
-mod imp {
-    use std::{io, process::Command};
-
-    use super::Installed;
-
-    const SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
-    const PATH: &str =
-        "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/nibwarden-quick/";
-
-    fn desktop() -> String {
-        std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default()
-    }
-
-    pub fn supported() -> bool {
-        desktop()
-            .split(':')
-            .any(|d| d.eq_ignore_ascii_case("gnome"))
-    }
-
-    fn entry() -> String {
-        format!("{SCHEMA}.custom-keybinding:{PATH}")
-    }
-
-    pub fn current() -> Option<String> {
-        if !supported() {
-            return None;
-        }
-        let paths = parse_string_list(&gsettings(&["get", SCHEMA, "custom-keybindings"]).ok()?);
-        if !paths.iter().any(|p| p == PATH) {
-            return None;
-        }
-        let binding = gsettings(&["get", &entry(), "binding"]).ok()?;
-        let binding = binding.trim_matches('\'').to_owned();
-        (!binding.is_empty()).then_some(binding)
-    }
-
-    pub fn remove() -> io::Result<()> {
-        if !supported() {
-            return Ok(());
-        }
-        let mut paths = parse_string_list(&gsettings(&["get", SCHEMA, "custom-keybindings"])?);
-        if paths.iter().any(|p| p == PATH) {
-            paths.retain(|p| p != PATH);
-            gsettings(&[
-                "set",
-                SCHEMA,
-                "custom-keybindings",
-                &format_string_list(&paths),
-            ])?;
-            gsettings(&["reset-recursively", &entry()])?;
-        }
-        Ok(())
-    }
-
-    /// GNOME: a custom keybinding through gsettings. Other desktops: not automatic yet.
-    pub fn install(name: &str, command: &str, binding: &str) -> io::Result<Installed> {
-        let desktop = desktop();
-        if !supported() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                format!(
-                    "cannot add shortcuts on this desktop ({}) yet; add one in its keyboard \
-                     settings that runs: {command}",
-                    if desktop.is_empty() {
-                        "unknown"
-                    } else {
-                        &desktop
-                    }
-                ),
-            ));
-        }
-        let current = gsettings(&["get", SCHEMA, "custom-keybindings"])?;
-        let mut paths = parse_string_list(&current);
-        if !paths.iter().any(|p| p == PATH) {
-            paths.push(PATH.to_owned());
-            gsettings(&[
-                "set",
-                SCHEMA,
-                "custom-keybindings",
-                &format_string_list(&paths),
-            ])?;
-        }
-        let entry = entry();
-        gsettings(&["set", &entry, "name", name])?;
-        gsettings(&["set", &entry, "command", command])?;
-        gsettings(&["set", &entry, "binding", binding])?;
-        Ok(Installed {
-            location: format!("GNOME Settings → Keyboard → Custom Shortcuts ({name})"),
-        })
-    }
-
-    fn gsettings(args: &[&str]) -> io::Result<String> {
-        let out = Command::new("gsettings").args(args).output()?;
-        if !out.status.success() {
-            return Err(io::Error::other(format!(
-                "gsettings {}: {}",
-                args.join(" "),
-                String::from_utf8_lossy(&out.stderr).trim()
-            )));
-        }
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
-    }
-
-    /// `@as []` or `['a', 'b']` (GVariant text format of a string array) → items.
-    pub(super) fn parse_string_list(text: &str) -> Vec<String> {
-        let inner = text
-            .trim()
-            .trim_start_matches("@as")
-            .trim()
-            .trim_start_matches('[')
-            .trim_end_matches(']');
-        inner
-            .split(',')
-            .map(|item| {
-                item.trim()
-                    .trim_matches(|c| c == '\'' || c == '"')
-                    .to_owned()
-            })
-            .filter(|item| !item.is_empty())
-            .collect()
-    }
-
-    pub(super) fn format_string_list(items: &[String]) -> String {
-        let quoted: Vec<String> = items.iter().map(|i| format!("'{i}'")).collect();
-        format!("[{}]", quoted.join(", "))
-    }
+/// Whether a process of ours has to hold the shortcut with [`hold`] (macOS, Windows).
+pub fn needs_holder() -> bool {
+    imp::NEEDS_HOLDER
 }
 
-#[cfg(not(target_os = "linux"))]
-mod imp {
-    use super::Installed;
+/// The shortcut, registered for this process until dropped.
+#[cfg(feature = "hotkey")]
+pub struct Held(#[allow(dead_code, reason = "kept for its Drop")] imp::Held);
 
-    pub fn install(_: &str, _: &str, _: &str) -> std::io::Result<Installed> {
-        Err(crate::unsupported())
-    }
-
-    pub fn current() -> Option<String> {
-        None
-    }
-
-    pub fn remove() -> std::io::Result<()> {
-        Ok(())
-    }
-
-    pub fn supported() -> bool {
-        false
-    }
+/// Registers `binding` (as for [`install`]) for this process; `pressed` runs, on any
+/// thread, each time it is pressed. Call it on the thread that runs
+/// [`crate::main_thread::wait`]: the key's events arrive through that loop.
+#[cfg(feature = "hotkey")]
+pub fn hold(binding: &str, pressed: impl Fn() + Send + Sync + 'static) -> io::Result<Held> {
+    imp::hold(binding, Box::new(pressed)).map(Held)
 }
+
+#[cfg_attr(target_os = "linux", path = "linux/shortcut.rs")]
+#[cfg_attr(any(target_os = "macos", windows), path = "desktop/shortcut.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/shortcut.rs"
+)]
+mod imp;
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {

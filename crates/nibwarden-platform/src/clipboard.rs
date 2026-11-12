@@ -30,66 +30,11 @@ impl Clipboard {
     }
 }
 
-#[cfg(target_os = "linux")]
-mod imp {
-    use std::io;
-
-    use arboard::SetExtLinux as _;
-
-    pub struct Clipboard(arboard::Clipboard);
-
-    fn io_error(e: arboard::Error) -> io::Error {
-        io::Error::other(e.to_string())
-    }
-
-    impl Clipboard {
-        pub fn open() -> io::Result<Self> {
-            arboard::Clipboard::new().map(Self).map_err(io_error)
-        }
-
-        pub fn set_secret(&mut self, text: &str) -> io::Result<()> {
-            self.0
-                .set()
-                .exclude_from_history()
-                .text(text)
-                .map_err(io_error)
-        }
-
-        pub fn still_holds(&mut self, text: &str) -> bool {
-            self.0.get_text().is_ok_and(|current| current == text)
-        }
-
-        pub fn clear_if_still(&mut self, text: &str) -> io::Result<bool> {
-            if self.still_holds(text) {
-                self.0.clear().map_err(io_error)?;
-                return Ok(true);
-            }
-            Ok(false)
-        }
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-mod imp {
-    use std::io;
-
-    pub enum Clipboard {}
-
-    impl Clipboard {
-        pub fn open() -> io::Result<Self> {
-            Err(crate::unsupported())
-        }
-
-        pub fn set_secret(&mut self, _: &str) -> io::Result<()> {
-            match *self {}
-        }
-
-        pub fn clear_if_still(&mut self, _: &str) -> io::Result<bool> {
-            match *self {}
-        }
-
-        pub fn still_holds(&mut self, _: &str) -> bool {
-            match *self {}
-        }
-    }
-}
+#[cfg_attr(target_os = "linux", path = "linux/clipboard.rs")]
+#[cfg_attr(target_os = "macos", path = "macos/clipboard.rs")]
+#[cfg_attr(windows, path = "windows/clipboard.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/clipboard.rs"
+)]
+mod imp;

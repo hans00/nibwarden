@@ -27,6 +27,10 @@ pub fn authenticator_in_image(bytes: &[u8]) -> Result<Zeroizing<String>, Problem
     let image = image::load_from_memory(bytes)
         .map_err(|e| Problem::Unreadable(e.to_string()))?
         .into_luma8();
+    authenticator_in_luma(image)
+}
+
+fn authenticator_in_luma(image: image::GrayImage) -> Result<Zeroizing<String>, Problem> {
     let mut prepared = rqrr::PreparedImage::prepare(image);
     prepared
         .detect_grids()
@@ -84,7 +88,7 @@ pub async fn choose_file(images: bool) -> Result<PathBuf, Problem> {
 }
 
 /// Whether the screen can be scanned here.
-pub const CAN_SCAN_SCREEN: bool = cfg!(target_os = "linux");
+pub const CAN_SCAN_SCREEN: bool = cfg!(any(target_os = "linux", target_os = "macos", windows));
 
 /// The QR code on the screen, from a screenshot the desktop portal takes (the desktop may
 /// ask the user first).
@@ -116,7 +120,38 @@ pub async fn authenticator_on_screen() -> Result<Zeroizing<String>, Problem> {
         .map_err(|e| Problem::Unreadable(e.to_string()))?
 }
 
-#[cfg(not(target_os = "linux"))]
+/// The QR code on any screen, from screenshots taken here (macOS asks once for the Screen
+/// Recording permission). The screenshots stay in memory.
+#[cfg(any(target_os = "macos", windows))]
+pub async fn authenticator_on_screen() -> Result<Zeroizing<String>, Problem> {
+    tokio::task::spawn_blocking(|| {
+        let monitors = xcap::Monitor::all().map_err(|e| Problem::NoScreenshot(e.to_string()))?;
+        let mut taken = false;
+        for monitor in monitors {
+            let Ok(shot) = monitor.capture_image() else {
+                continue;
+            };
+            taken = true;
+            let (width, height) = (shot.width(), shot.height());
+            let Some(rgba) = image::RgbaImage::from_raw(width, height, shot.into_raw()) else {
+                continue;
+            };
+            let luma = image::DynamicImage::ImageRgba8(rgba).into_luma8();
+            if let Ok(found) = authenticator_in_luma(luma) {
+                return Ok(found);
+            }
+        }
+        Err(if taken {
+            Problem::NoQrCode
+        } else {
+            Problem::NoScreenshot("no screen could be captured".to_owned())
+        })
+    })
+    .await
+    .map_err(|e| Problem::Unreadable(e.to_string()))?
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 pub async fn authenticator_on_screen() -> Result<Zeroizing<String>, Problem> {
     Err(Problem::NoScreenshot("not supported here".to_owned()))
 }

@@ -6,33 +6,11 @@ pub fn harden_process() {
     imp::harden_process();
 }
 
-#[cfg(target_os = "linux")]
-mod imp {
-    pub fn harden_process() {
-        // SAFETY: plain syscalls without pointers into Rust memory, except `limit`, which
-        // outlives the call.
-        unsafe {
-            // Files we create (SDK database included) are private regardless of the
-            // caller's umask.
-            libc::umask(0o077);
-            // Also blocks same-uid ptrace where Yama is off.
-            if libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) != 0 {
-                eprintln!("warning: PR_SET_DUMPABLE failed");
-            }
-            let limit = libc::rlimit {
-                rlim_cur: 0,
-                rlim_max: 0,
-            };
-            if libc::setrlimit(libc::RLIMIT_CORE, &limit) != 0 {
-                eprintln!("warning: could not disable core dumps");
-            }
-        }
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-mod imp {
-    pub fn harden_process() {
-        eprintln!("warning: process hardening is not implemented on this platform");
-    }
-}
+#[cfg_attr(target_os = "linux", path = "linux/hardening.rs")]
+#[cfg_attr(target_os = "macos", path = "macos/hardening.rs")]
+#[cfg_attr(windows, path = "windows/hardening.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/hardening.rs"
+)]
+mod imp;

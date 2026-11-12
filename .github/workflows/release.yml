@@ -1,10 +1,16 @@
 name: Release
 
 # Pushing a tag v<version> (the workspace version) builds the packages and publishes them
-# as a GitHub release.
+# as a GitHub release. A pull request that changes the packaging builds them too, without
+# publishing.
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "packaging/**"
+      - "xtask/**"
 
 permissions:
   contents: read
@@ -29,8 +35,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Build dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libfontconfig-dev libfreetype-dev
+        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y pkg-config libfontconfig-dev libfreetype-dev
       - name: Version matches the tag
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           test "v$version" = "$GITHUB_REF_NAME"
@@ -44,9 +51,56 @@ jobs:
           name: dist-${{ matrix.arch }}
           path: target/dist/*
 
+  macos:
+    name: Packages (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Version matches the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "v$version" = "$GITHUB_REF_NAME"
+      - run: cargo xtask dist
+      - run: rm target/dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: target/dist/*
+
+  windows:
+    name: Packages (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+      - name: Version matches the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "v$version" = "$GITHUB_REF_NAME"
+      - run: cargo xtask dist
+      - run: rm target/dist/SHA256SUMS
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: target/dist/*
+
   release:
     name: GitHub release
-    needs: dist
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [dist, macos, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

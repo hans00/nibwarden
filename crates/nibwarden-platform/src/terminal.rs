@@ -27,23 +27,13 @@ pub fn read_line(prompt: &str) -> io::Result<String> {
     Ok(line.trim().to_owned())
 }
 
-#[cfg(target_os = "linux")]
-mod imp {
-    use std::{fs::File, io};
-
-    pub fn open() -> io::Result<File> {
-        std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open("/dev/tty")
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-mod imp {
-    use std::{fs::File, io};
-
-    pub fn open() -> io::Result<File> {
-        Err(crate::unsupported())
-    }
-}
+#[cfg_attr(
+    any(target_os = "linux", target_os = "macos"),
+    path = "unix/terminal.rs"
+)]
+#[cfg_attr(windows, path = "windows/terminal.rs")]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "macos", windows)),
+    path = "other/terminal.rs"
+)]
+mod imp;

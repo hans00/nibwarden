@@ -1,9 +1,10 @@
 //! Platform layer (phase2.md §8). Everything that differs between operating systems lives
 //! here; the other crates use only these interfaces and contain no `cfg(target_os)`.
 //!
-//! Linux is implemented. Other targets compile, so interfaces cannot quietly grow
-//! Linux-only types, but their functions report [`std::io::ErrorKind::Unsupported`] until
-//! they are ported.
+//! Each module keeps its interface here and one implementation per platform in
+//! `linux/`, `macos/`, `windows/` and `other/` (the last reports
+//! [`std::io::ErrorKind::Unsupported`], so interfaces cannot quietly grow types only one
+//! platform has).
 
 pub mod autostart;
 pub mod browser;
@@ -14,6 +15,8 @@ pub mod display;
 pub mod fs;
 pub mod hardening;
 pub mod locale;
+#[cfg(feature = "tray")]
+pub mod main_thread;
 pub mod native_messaging;
 pub mod notify;
 pub mod paths;
@@ -29,6 +32,22 @@ pub mod transport;
 #[cfg(feature = "tray")]
 pub mod tray;
 
+#[cfg(target_os = "macos")]
+#[path = "macos/gui_session.rs"]
+mod gui_session;
+#[cfg(target_os = "macos")]
+#[path = "macos/launchd.rs"]
+mod launchd;
+// The macOS port's parsing and formatting; compiled everywhere so its tests run everywhere.
+#[allow(dead_code, reason = "used on macOS only")]
+#[path = "macos/logic.rs"]
+mod macos_logic;
+/// Helpers shared by the Windows implementations.
+#[cfg(windows)]
+#[path = "windows/common.rs"]
+mod winutil;
+
+#[allow(dead_code, reason = "used only where a platform is not ported")]
 #[cfg(not(target_os = "linux"))]
 fn unsupported() -> std::io::Error {
     std::io::Error::new(
